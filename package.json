@@ -1,0 +1,16 @@
+{
+  "name": "ohrimmarketplace",
+  "version": "1.0.0",
+  "description": "ohrimmarketplace - B2B Product Marketplace",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ohrimmarketplace - Shop Dashboard</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f0; color: #1a1a1a; }
+a { color: inherit; text-decoration: none; }
+
+.navbar { background: #1a1a1a; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+.logo { font-size: 1.3rem; font-weight: 800; }
+.logo span { color: #e67e22; }
+.nav-right { display: flex; gap: 16px; align-items: center; }
+.nav-right a, .nav-right button { background: none; border: none; color: #aaa; font-size: 0.85rem; cursor: pointer; }
+.nav-right a:hover, .nav-right button:hover { color: #fff; }
+
+.container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+.tabs { display: flex; gap: 0; margin-bottom: 24px; background: #fff; border-radius: 8px; border: 1px solid #e0e0e0; overflow: hidden; }
+.tab { padding: 12px 24px; cursor: pointer; font-size: 0.9rem; color: #888; border-bottom: 2px solid transparent; transition: all 0.2s; }
+.tab:hover { color: #1a1a1a; }
+.tab.active { color: #e67e22; border-bottom-color: #e67e22; font-weight: 600; }
+
+.panel { display: none; }
+.panel.active { display: block; }
+
+.card { background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; font-size: 0.8rem; color: #666; margin-bottom: 4px; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.9rem; outline: none; }
+.form-group input:focus, .form-group textarea:focus { border-color: #e67e22; }
+.form-group textarea { resize: vertical; min-height: 80px; }
+.file-drop { border: 2px dashed #ddd; border-radius: 8px; padding: 24px; text-align: center; color: #999; cursor: pointer; transition: all 0.2s; }
+.file-drop:hover { border-color: #e67e22; color: #e67e22; }
+.file-drop input { display: none; }
+.btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; }
+.btn-primary { background: #e67e22; color: #fff; }
+.btn-primary:hover { background: #d35400; }
+.btn-danger { background: #e74c3c; color: #fff; }
+.btn-danger:hover { background: #c0392b; }
+.btn-small { padding: 6px 12px; font-size: 0.75rem; }
+
+.products-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.product-item { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; overflow: hidden; }
+.product-item-img { height: 140px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; }
+.product-item-img img { width: 100%; height: 100%; object-fit: cover; }
+.product-item-body { padding: 12px; }
+.product-item-name { font-weight: 600; font-size: 0.95rem; }
+.product-item-price { color: #e67e22; font-weight: 700; margin: 4px 0; }
+.product-item-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.order-item { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 16px; margin-bottom: 10px; display: flex; gap: 16px; align-items: flex-start; }
+.order-img { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background: #f0f0f0; flex-shrink: 0; }
+.order-details { flex: 1; }
+.order-product { font-weight: 600; font-size: 0.9rem; }
+.order-customer { font-size: 0.8rem; color: #666; margin-top: 2px; }
+.order-meta { font-size: 0.8rem; color: #999; margin-top: 4px; }
+.order-amount { font-weight: 700; color: #e67e22; font-size: 1.1rem; }
+
+.status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+.status-pending { background: #fff3e0; color: #e67e22; }
+.status-confirmed { background: #e8f5e9; color: #4caf50; }
+.status-dispatched { background: #e3f2fd; color: #2196f3; }
+.status-delivered { background: #e8f5e9; color: #27ae60; }
+.status-cancelled { background: #ffebee; color: #e74c3c; }
+
+.empty { text-align: center; padding: 40px; color: #999; }
+
+.toast { position: fixed; bottom: 24px; right: 24px; background: #1a1a1a; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 0.85rem; z-index: 200; display: none; }
+.toast.show { display: block; }
+.toast.success { background: #27ae60; }
+.toast.error { background: #e74c3c; }
+
+/* Login */
+.login-overlay { position: fixed; inset: 0; background: #f5f5f0; z-index: 200; display: flex; align-items: center; justify-content: center; }
+.login-card { background: #fff; border-radius: 16px; padding: 40px; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+.login-card h2 { margin-bottom: 8px; }
+.login-card p { color: #888; font-size: 0.85rem; margin-bottom: 24px; }
+.login-card input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; margin-bottom: 12px; outline: none; }
+.login-card input:focus { border-color: #e67e22; }
+.login-card button { width: 100%; padding: 12px; background: #e67e22; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+.login-card .error { color: #e74c3c; font-size: 0.85rem; margin-top: 8px; display: none; }
+
+@media (max-width: 640px) {
+  .form-row { grid-template-columns: 1fr; }
+  .products-list { grid-template-columns: 1fr; }
+  .order-item { flex-direction: column; }
+}
+</style>
+</head>
+<body>
+
+<div class="login-overlay" id="loginScreen">
+  <div class="login-card">
+    <h2>Shop <span style="color:#e67e22">Login</span></h2>
+    <p>Enter your shop number and password</p>
+    <input type="text" id="loginShopNum" placeholder="Shop Number">
+    <input type="password" id="loginPassword" placeholder="Password">
+    <div class="error" id="loginError"></div>
+    <button onclick="doLogin()">Login</button>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <div class="navbar">
+    <a href="/" class="logo">ohrim<span>marketplace</span></a>
+    <div class="nav-right">
+      <span id="shopLabel" style="color:#e67e22;font-size:0.85rem"></span>
+      <a href="/">View Store</a>
+      <button onclick="doLogout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('products', this)">My Products</div>
+      <div class="tab" onclick="switchTab('orders', this)">Incoming Orders</div>
+    </div>
+
+    <div id="products" class="panel active">
+      <div class="card">
+        <h3 style="margin-bottom:16px">Add New Product</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Product Name *</label>
+            <input type="text" id="prodName" placeholder="e.g. Cotton T-Shirt">
+          </div>
+          <div class="form-group">
+            <label>Price (₹) *</label>
+            <input type="number" id="prodPrice" placeholder="e.g. 250" min="1">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Category</label>
+            <select id="prodCategory">
+              <option value="General">General</option>
+              <option value="Clothing">Clothing</option>
+              <option value="Electronics">Electronics</option>
+              <option value="Grocery">Grocery</option>
+              <option value="Footwear">Footwear</option>
+              <option value="Accessories">Accessories</option>
+              <option value="Home & Kitchen">Home & Kitchen</option>
+              <option value="Beauty">Beauty</option>
+              <option value="Sports">Sports</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Product Image</label>
+            <div class="file-drop" onclick="document.getElementById('prodImage').click()">
+              <input type="file" id="prodImage" accept="image/*" onchange="previewFile(this, 'imagePreview')">
+              <div id="imagePreview">Click to upload image</div>
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="prodDesc" placeholder="Product details..."></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="addProduct()">Add Product</button>
+      </div>
+
+      <div id="myProducts" class="products-list"></div>
+    </div>
+
+    <div id="orders" class="panel">
+      <div id="myOrders"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let myProducts = [];
+let myOrders = [];
+
+async function doLogin() {
+  const num = document.getElementById('loginShopNum').value;
+  const pass = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  if (!num || !pass) { errEl.textContent = 'Enter both fields'; errEl.style.display = 'block'; return; }
+  try {
+    const res = await fetch('/api/shop/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopNumber: num, password: pass })
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      document.getElementById('shopLabel').textContent = 'Shop #' + data.shopNumber;
+      loadMyProducts();
+      loadMyOrders();
+    } else {
+      errEl.textContent = data.error;
+      errEl.style.display = 'block';
+    }
+  } catch { errEl.textContent = 'Connection error'; errEl.style.display = 'block'; }
+}
+
+async function doLogout() {
+  await fetch('/api/shop/logout', { method: 'POST' });
+  location.reload();
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(name).classList.add('active');
+  if (name === 'orders') loadMyOrders();
+}
+
+function previewFile(input, previewId) {
+  const el = document.getElementById(previewId);
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = e => el.innerHTML = '<img src="' + e.target.result + '" style="max-height:80px;border-radius:6px">';
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+async function addProduct() {
+  const name = document.getElementById('prodName').value;
+  const price = document.getElementById('prodPrice').value;
+  if (!name || !price) { showToast('Fill name and price', 'error'); return; }
+
+  const form = new FormData();
+  form.append('name', name);
+  form.append('price', price);
+  form.append('category', document.getElementById('prodCategory').value);
+  form.append('description', document.getElementById('prodDesc').value);
+  const img = document.getElementById('prodImage').files[0];
+  if (img) form.append('image', img);
+
+  try {
+    const res = await fetch('/api/shop/products', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Product added!', 'success');
+      document.getElementById('prodName').value = '';
+      document.getElementById('prodPrice').value = '';
+      document.getElementById('prodDesc').value = '';
+      document.getElementById('prodImage').value = '';
+      document.getElementById('imagePreview').textContent = 'Click to upload image';
+      loadMyProducts();
+    } else { showToast(data.error, 'error'); }
+  } catch { showToast('Error', 'error'); }
+}
+
+async function loadMyProducts() {
+  try {
+    const res = await fetch('/api/shop/products');
+    const data = await res.json();
+    myProducts = data.products || [];
+    const el = document.getElementById('myProducts');
+    if (!myProducts.length) { el.innerHTML = '<div class="empty">No products yet. Add your first product above!</div>'; return; }
+    el.innerHTML = myProducts.map(p => `
+      <div class="product-item">
+        <div class="product-item-img">${p.image ? '<img src="' + p.image + '">' : '<span style="font-size:2rem;color:#ccc">📦</span>'}</div>
+        <div class="product-item-body">
+          <div class="product-item-name">${esc(p.name)}</div>
+          <div class="product-item-price">₹${Number(p.price).toLocaleString('en-IN')}</div>
+          <div style="font-size:0.75rem;color:#999">${p.category || 'General'}</div>
+          <div class="product-item-actions">
+            <button class="btn btn-small ${p.active ? 'btn-primary' : 'btn-danger'}" onclick="toggleProduct(${p.id}, ${!p.active})">${p.active ? 'Active' : 'Hidden'}</button>
+            <button class="btn btn-small btn-danger" onclick="deleteProduct(${p.id})">Delete</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  } catch { }
+}
+
+async function toggleProduct(id, active) {
+  await fetch('/api/shop/products/' + id, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active })
+  });
+  loadMyProducts();
+}
+
+async function deleteProduct(id) {
+  if (!confirm('Delete this product?')) return;
+  await fetch('/api/shop/products/' + id, { method: 'DELETE' });
+  loadMyProducts();
+}
+
+async function loadMyOrders() {
+  try {
+    const res = await fetch('/api/shop/orders');
+    const data = await res.json();
+    myOrders = data.orders || [];
+    const el = document.getElementById('myOrders');
+    if (!myOrders.length) { el.innerHTML = '<div class="empty">No orders yet</div>'; return; }
+    el.innerHTML = myOrders.map(o => `
+      <div class="order-item">
+        ${o.productImage ? '<img class="order-img" src="/uploads/' + o.productImage + '">' : '<div class="order-img" style="display:flex;align-items:center;justify-content:center">📦</div>'}
+        <div class="order-details">
+          <div class="order-product">${esc(o.productName)} × ${o.quantity}</div>
+          <div class="order-customer">👤 ${esc(o.customerName)} &nbsp; 📱 ${esc(o.customerPhone)}</div>
+          ${o.customerAddress ? '<div class="order-meta">📍 ' + esc(o.customerAddress) + '</div>' : ''}
+          <div class="order-meta">Order #${o.id} — ${new Date(o.createdAt).toLocaleString()}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="order-amount">₹${Number(o.totalAmount).toLocaleString('en-IN')}</div>
+          <span class="status-badge status-${o.status}">${o.status}</span>
+        </div>
+      </div>
+    `).join('');
+  } catch { }
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.className = 'toast', 3000);
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') doLogin(); });
+</script>
+</body>
+</html>

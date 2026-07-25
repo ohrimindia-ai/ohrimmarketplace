@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ohrimmarketplace - Admin</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f0; color: #1a1a1a; }
+a { color: inherit; text-decoration: none; }
+
+.navbar { background: #1a1a1a; color: #fff; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+.logo { font-size: 1.3rem; font-weight: 800; }
+.logo span { color: #e67e22; }
+.nav-right { display: flex; gap: 16px; align-items: center; }
+.nav-right a, .nav-right button { background: none; border: none; color: #aaa; font-size: 0.85rem; cursor: pointer; }
+.nav-right a:hover, .nav-right button:hover { color: #fff; }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.stat-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 16px; }
+.stat-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-value { font-size: 1.8rem; font-weight: 700; margin-top: 4px; }
+
+.tabs { display: flex; gap: 0; margin-bottom: 24px; background: #fff; border-radius: 8px; border: 1px solid #e0e0e0; overflow: hidden; flex-wrap: wrap; }
+.tab { padding: 12px 20px; cursor: pointer; font-size: 0.85rem; color: #888; border-bottom: 2px solid transparent; transition: all 0.2s; }
+.tab:hover { color: #1a1a1a; }
+.tab.active { color: #e67e22; border-bottom-color: #e67e22; font-weight: 600; }
+
+.panel { display: none; }
+.panel.active { display: block; }
+
+.filter-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.filter-btn { padding: 6px 14px; border-radius: 20px; border: 1px solid #ddd; background: #fff; color: #888; cursor: pointer; font-size: 0.8rem; transition: all 0.2s; }
+.filter-btn:hover { border-color: #999; color: #666; }
+.filter-btn.active { border-color: #e67e22; background: #fff8f0; color: #e67e22; }
+
+.order-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 16px; margin-bottom: 10px; }
+.order-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.order-body { display: flex; gap: 12px; margin-top: 10px; }
+.order-img { width: 50px; height: 50px; border-radius: 6px; object-fit: cover; background: #f0f0f0; flex-shrink: 0; }
+.order-info { flex: 1; }
+.order-product { font-weight: 600; }
+.order-customer { font-size: 0.8rem; color: #666; margin-top: 2px; }
+.order-meta { font-size: 0.75rem; color: #999; margin-top: 4px; }
+.order-right { text-align: right; }
+.order-amount { font-weight: 700; color: #e67e22; font-size: 1.1rem; }
+.order-actions { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+.status-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+.status-pending { background: #fff3e0; color: #e67e22; }
+.status-confirmed { background: #e8f5e9; color: #4caf50; }
+.status-dispatched { background: #e3f2fd; color: #2196f3; }
+.status-delivered { background: #e8f5e9; color: #27ae60; }
+.status-cancelled { background: #ffebee; color: #e74c3c; }
+
+.btn { padding: 6px 12px; border-radius: 6px; border: 1px solid #ddd; background: #fff; color: #666; cursor: pointer; font-size: 0.7rem; font-weight: 500; transition: all 0.2s; }
+.btn:hover { border-color: #e67e22; color: #e67e22; }
+.btn.btn-green { border-color: #4caf50; color: #4caf50; }
+.btn.btn-blue { border-color: #2196f3; color: #2196f3; }
+.btn.btn-orange { border-color: #e67e22; color: #e67e22; }
+.btn.btn-red { border-color: #e74c3c; color: #e74c3c; }
+
+.add-shop-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+.add-shop-card h3 { margin-bottom: 12px; font-size: 1rem; }
+.inline-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.inline-form input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.85rem; flex: 1; min-width: 120px; }
+.inline-form button { padding: 8px 16px; background: #e67e22; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+
+.shops-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.shop-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 14px; }
+.shop-number { font-size: 1.3rem; font-weight: 700; }
+.shop-meta { font-size: 0.8rem; color: #888; margin-top: 4px; }
+
+.empty { text-align: center; padding: 40px; color: #999; }
+
+.toast { position: fixed; bottom: 24px; right: 24px; background: #1a1a1a; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 0.85rem; z-index: 200; display: none; }
+.toast.show { display: block; }
+.toast.success { background: #27ae60; }
+.toast.error { background: #e74c3c; }
+
+/* Login */
+.login-overlay { position: fixed; inset: 0; background: #f5f5f0; z-index: 200; display: flex; align-items: center; justify-content: center; }
+.login-card { background: #fff; border-radius: 16px; padding: 40px; width: 100%; max-width: 380px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+.login-card h2 { margin-bottom: 8px; }
+.login-card p { color: #888; font-size: 0.85rem; margin-bottom: 24px; }
+.login-card input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; margin-bottom: 12px; outline: none; }
+.login-card input:focus { border-color: #e67e22; }
+.login-card button { width: 100%; padding: 12px; background: #1a1a1a; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+.login-card .error { color: #e74c3c; font-size: 0.85rem; margin-top: 8px; display: none; }
+
+@media (max-width: 640px) {
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .order-body { flex-direction: column; }
+  .order-right { text-align: left; }
+}
+</style>
+</head>
+<body>
+
+<div class="login-overlay" id="loginScreen">
+  <div class="login-card">
+    <h2>Admin <span style="color:#e67e22">Login</span></h2>
+    <p>Enter admin password</p>
+    <input type="password" id="loginPass" placeholder="Password">
+    <div class="error" id="loginError"></div>
+    <button onclick="doLogin()">Login</button>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <div class="navbar">
+    <a href="/" class="logo">ohrim<span>marketplace</span> Admin</a>
+    <div class="nav-right">
+      <a href="/">View Store</a>
+      <button onclick="doLogout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="stats-grid" id="statsGrid"></div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('ordersPanel', this)">All Orders</div>
+      <div class="tab" onclick="switchTab('shopsPanel', this)">Shops</div>
+    </div>
+
+    <div id="ordersPanel" class="panel active">
+      <div class="filter-row" id="statusFilters"></div>
+      <div id="ordersList"></div>
+    </div>
+
+    <div id="shopsPanel" class="panel">
+      <div class="add-shop-card">
+        <h3>Add New Shop</h3>
+        <div class="inline-form">
+          <input type="text" id="newShopNum" placeholder="Shop Number">
+          <input type="text" id="newShopPass" placeholder="Password">
+          <button onclick="addShop()">Add Shop</button>
+        </div>
+      </div>
+      <div id="shopsList" class="shops-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let allOrders = [];
+let statusFilter = '';
+
+async function doLogin() {
+  const pass = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('loginError');
+  if (!pass) { errEl.textContent = 'Enter password'; errEl.style.display = 'block'; return; }
+  try {
+    const res = await fetch('/api/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pass })
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      loadAll();
+    } else {
+      errEl.textContent = data.error;
+      errEl.style.display = 'block';
+    }
+  } catch { errEl.textContent = 'Error'; errEl.style.display = 'block'; }
+}
+
+async function doLogout() {
+  await fetch('/api/admin/logout', { method: 'POST' });
+  location.reload();
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(name).classList.add('active');
+}
+
+async function loadAll() {
+  loadStats();
+  loadOrders();
+  loadShops();
+  renderStatusFilters();
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch('/api/admin/stats');
+    const d = await res.json();
+    document.getElementById('statsGrid').innerHTML = `
+      <div class="stat-card"><div class="stat-label">Total Orders</div><div class="stat-value">${d.totalOrders}</div></div>
+      <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value" style="color:#e67e22">${d.pendingOrders}</div></div>
+      <div class="stat-card"><div class="stat-label">Revenue</div><div class="stat-value" style="color:#27ae60">₹${Number(d.totalRevenue).toLocaleString('en-IN')}</div></div>
+      <div class="stat-card"><div class="stat-label">Products</div><div class="stat-value">${d.totalProducts}</div></div>
+      <div class="stat-card"><div class="stat-label">Shops</div><div class="stat-value">${d.totalShops}</div></div>
+    `;
+  } catch { }
+}
+
+function renderStatusFilters() {
+  const statuses = ['', 'pending', 'confirmed', 'dispatched', 'delivered', 'cancelled'];
+  const labels = ['All', 'Pending', 'Confirmed', 'Dispatched', 'Delivered', 'Cancelled'];
+  document.getElementById('statusFilters').innerHTML = statuses.map((s, i) =>
+    `<button class="filter-btn ${s === statusFilter ? 'active' : ''}" onclick="setStatusFilter('${s}', this)">${labels[i]}</button>`
+  ).join('');
+}
+
+function setStatusFilter(s, el) {
+  statusFilter = s;
+  renderStatusFilters();
+  renderOrders();
+}
+
+async function loadOrders() {
+  try {
+    const res = await fetch('/api/admin/orders');
+    const data = await res.json();
+    allOrders = data.orders || [];
+    renderOrders();
+  } catch { }
+}
+
+function renderOrders() {
+  let filtered = statusFilter ? allOrders.filter(o => o.status === statusFilter) : allOrders;
+  const el = document.getElementById('ordersList');
+  if (!filtered.length) { el.innerHTML = '<div class="empty">No orders found</div>'; return; }
+  el.innerHTML = filtered.map(o => `
+    <div class="order-card">
+      <div class="order-header">
+        <div>
+          <span class="status-badge status-${o.status}">${o.status}</span>
+          <span style="font-size:0.75rem;color:#999;margin-left:8px">Order #${o.id}</span>
+          <span style="font-size:0.75rem;color:#999;margin-left:8px">Shop #${o.shopNumber}</span>
+        </div>
+        <span style="font-size:0.75rem;color:#999">${new Date(o.createdAt).toLocaleString()}</span>
+      </div>
+      <div class="order-body">
+        ${o.productImage ? '<img class="order-img" src="/uploads/' + o.productImage + '">' : '<div class="order-img" style="display:flex;align-items:center;justify-content:center">📦</div>'}
+        <div class="order-info">
+          <div class="order-product">${esc(o.productName)} × ${o.quantity}</div>
+          <div class="order-customer">👤 ${esc(o.customerName)} &nbsp; 📱 ${esc(o.customerPhone)}</div>
+          ${o.customerAddress ? '<div class="order-meta">📍 ' + esc(o.customerAddress) + '</div>' : ''}
+        </div>
+        <div class="order-right">
+          <div class="order-amount">₹${Number(o.totalAmount).toLocaleString('en-IN')}</div>
+          <div class="order-actions">
+            ${o.status === 'pending' ? `
+              <button class="btn btn-green" onclick="updateOrder(${o.id}, 'confirmed')">Confirm</button>
+              <button class="btn btn-red" onclick="updateOrder(${o.id}, 'cancelled')">Cancel</button>
+            ` : ''}
+            ${o.status === 'confirmed' ? `<button class="btn btn-blue" onclick="updateOrder(${o.id}, 'dispatched')">Dispatch</button>` : ''}
+            ${o.status === 'dispatched' ? `<button class="btn btn-green" onclick="updateOrder(${o.id}, 'delivered')">Delivered</button>` : ''}
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function updateOrder(id, status) {
+  await fetch('/api/admin/orders/' + id, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  loadOrders();
+  loadStats();
+  showToast('Order #' + id + ' updated to ' + status, 'success');
+}
+
+async function loadShops() {
+  try {
+    const res = await fetch('/api/admin/shops');
+    const data = await res.json();
+    document.getElementById('shopsList').innerHTML = (data.shops || []).map(s => `
+      <div class="shop-card">
+        <div class="shop-number">Shop #${s.shopNumber}</div>
+        <div class="shop-meta">${s.productCount} products</div>
+        <div class="shop-meta">ID: ${s.id}</div>
+      </div>
+    `).join('');
+  } catch { }
+}
+
+async function addShop() {
+  const num = document.getElementById('newShopNum').value;
+  const pass = document.getElementById('newShopPass').value;
+  if (!num || !pass) { showToast('Enter shop number and password', 'error'); return; }
+  try {
+    const res = await fetch('/api/admin/shops', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shopNumber: num, password: pass })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Shop #' + num + ' created!', 'success');
+      document.getElementById('newShopNum').value = '';
+      document.getElementById('newShopPass').value = '';
+      loadShops();
+      loadStats();
+    } else { showToast(data.error, 'error'); }
+  } catch { showToast('Error', 'error'); }
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.className = 'toast', 3000);
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') doLogin(); });
+</script>
+</body>
+</html>
