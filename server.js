@@ -5,29 +5,65 @@ const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'ohrimmarketplace_secret_key_2026';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
-const DB_DIR = path.join(__dirname, 'data');
-const DB_FILE = path.join(DB_DIR, 'db.json');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
 const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-[DB_DIR, UPLOAD_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shops (
+      id SERIAL PRIMARY KEY,
+      shop_number TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      name TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS products (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER REFERENCES shops(id),
+      name TEXT NOT NULL,
+      price NUMERIC NOT NULL,
+      description TEXT DEFAULT '',
+      category TEXT DEFAULT '',
+      image TEXT,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      product_id INTEGER REFERENCES products(id),
+      shop_id INTEGER REFERENCES shops(id),
+      product_name TEXT,
+      product_price NUMERIC,
+      product_image TEXT,
+      shop_number TEXT,
+      customer_name TEXT NOT NULL,
+      customer_phone TEXT NOT NULL,
+      customer_address TEXT DEFAULT '',
+      quantity INTEGER DEFAULT 1,
+      total_amount NUMERIC,
+      status TEXT DEFAULT 'pending',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
 
-function loadDB() {
-  if (!fs.existsSync(DB_FILE)) return { shops: {}, products: {}, orders: {}, nextProductId: 1, nextOrderId: 1 };
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-}
-function saveDB(db) { fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
-
-const db = loadDB();
-if (!db.shops['1']) {
-  const hash = bcrypt.hashSync('shop123', 10);
-  db.shops['1'] = { id: 1, shopNumber: '1', password: hash, name: 'Shop 1', createdAt: new Date().toISOString() };
-  saveDB(db);
+  const res = await pool.query('SELECT id FROM shops WHERE shop_number = $1', ['1']);
+  if (res.rows.length === 0) {
+    const hash = bcrypt.hashSync('shop123', 10);
+    await pool.query('INSERT INTO shops (shop_number, password, name) VALUES ($1, $2, $3)', ['1', hash, 'Shop 1']);
+  }
+  console.log('Database initialized');
 }
 
 const upload = multer({
@@ -71,81 +107,87 @@ function authAdmin(req, res, next) {
 }
 
 // PUBLIC: List all products
-app.get('/api/products', (req, res) => {
-  const db = loadDB();
+app.get('/api/products', async (req, res) => {
   const { shop, search, sort } = req.query;
-  let products = Object.values(db.products).filter(p => p.active);
-  if (shop) products = products.filter(p => String(p.shopId) === String(shop));
-  if (search) {
-    const q = search.toLowerCase();
-    products = products.filter(p => p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q)));
-  }
-  if (sort === 'price_low') products.sort((a, b) => a.price - b.price);
-  else if (sort === 'price_high') products.sort((a, b) => b.price - a.price);
-  else if (sort === 'newest') products.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  else products.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  let query = `
+    SELECT p.*, s.shop_number
+    FROM products p JOIN shops s ON p.shop_id = s.id
+    WHERE p.active = true
+  `;
+  const params = [];
+  let i = 1;
 
-  const enriched = products.map(p => ({
-    ...p,
-    shopNumber: db.shops[String(p.shopId)]?.shopNumber || '?',
+  if (shop) { query += ` AND p.shop_id = $${i++}`; params.push(shop); }
+  if (search) { query += ` AND (LOWER(p.name) LIKE $${i} OR LOWER(p.description) LIKE $${i})`; params.push(`%${search.toLowerCase()}%`); i++; }
+
+  if (sort === 'price_low') query += ' ORDER BY p.price ASC';
+  else if (sort === 'price_high') query += ' ORDER BY p.price DESC';
+  else query += ' ORDER BY p.created_at DESC';
+
+  const result = await pool.query(query, params);
+  const products = result.rows.map(p => ({
+    id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
+    description: p.description, category: p.category,
     image: p.image ? `/uploads/${p.image}` : null,
+    active: p.active, createdAt: p.created_at, shopNumber: p.shop_number
   }));
-  res.json({ products: enriched });
+  res.json({ products });
 });
 
 // PUBLIC: Single product
-app.get('/api/products/:id', (req, res) => {
-  const db = loadDB();
-  const product = db.products[req.params.id];
-  if (!product) return res.status(404).json({ error: 'Not found' });
-  const shop = db.shops[String(product.shopId)];
-  res.json({ ...product, shopNumber: shop?.shopNumber || '?', image: product.image ? `/uploads/${product.image}` : null });
+app.get('/api/products/:id', async (req, res) => {
+  const result = await pool.query(`
+    SELECT p.*, s.shop_number FROM products p JOIN shops s ON p.shop_id = s.id WHERE p.id = $1
+  `, [req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  const p = result.rows[0];
+  res.json({
+    id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
+    description: p.description, category: p.category,
+    image: p.image ? `/uploads/${p.image}` : null,
+    active: p.active, createdAt: p.created_at, shopNumber: p.shop_number
+  });
 });
 
 // PUBLIC: Place order
-app.post('/api/orders', (req, res) => {
-  const db = loadDB();
+app.post('/api/orders', async (req, res) => {
   const { productId, customerName, customerPhone, customerAddress, quantity } = req.body;
   if (!productId || !customerName || !customerPhone || !quantity) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
-  const product = db.products[String(productId)];
-  if (!product || !product.active) return res.status(404).json({ error: 'Product not found' });
+  const pResult = await pool.query('SELECT p.*, s.shop_number FROM products p JOIN shops s ON p.shop_id = s.id WHERE p.id = $1 AND p.active = true', [productId]);
+  if (pResult.rows.length === 0) return res.status(404).json({ error: 'Product not found' });
+  const p = pResult.rows[0];
 
-  const id = db.nextOrderId++;
-  db.orders[String(id)] = {
-    id, productId: Number(productId), shopId: product.shopId,
-    productName: product.name, productPrice: product.price, productImage: product.image,
-    shopNumber: db.shops[String(product.shopId)]?.shopNumber || '?',
-    customerName, customerPhone, customerAddress: customerAddress || '',
-    quantity: Number(quantity), totalAmount: product.price * Number(quantity),
-    status: 'pending', createdAt: new Date().toISOString()
-  };
-  saveDB(db);
-  res.json({ success: true, orderId: id });
+  const result = await pool.query(`
+    INSERT INTO orders (product_id, shop_id, product_name, product_price, product_image, shop_number, customer_name, customer_phone, customer_address, quantity, total_amount)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
+  `, [productId, p.shop_id, p.name, p.price, p.image, p.shop_number, customerName, customerPhone, customerAddress || '', Number(quantity), p.price * Number(quantity)]);
+  res.json({ success: true, orderId: result.rows[0].id });
 });
 
 // PUBLIC: Shops list
-app.get('/api/shops', (req, res) => {
-  const db = loadDB();
-  const shops = Object.values(db.shops).map(s => ({
-    id: s.id, shopNumber: s.shopNumber,
-    productCount: Object.values(db.products).filter(p => p.shopId === s.id && p.active).length
-  }));
+app.get('/api/shops', async (req, res) => {
+  const result = await pool.query(`
+    SELECT s.id, s.shop_number,
+      (SELECT COUNT(*) FROM products p WHERE p.shop_id = s.id AND p.active = true) AS product_count
+    FROM shops s ORDER BY s.id
+  `);
+  const shops = result.rows.map(s => ({ id: s.id, shopNumber: s.shop_number, productCount: Number(s.product_count) }));
   res.json({ shops });
 });
 
 // AUTH: Shop login
-app.post('/api/shop/login', (req, res) => {
+app.post('/api/shop/login', async (req, res) => {
   const { shopNumber, password } = req.body;
-  const db = loadDB();
-  const shop = Object.values(db.shops).find(s => s.shopNumber === String(shopNumber));
-  if (!shop || !bcrypt.compareSync(password, shop.password)) {
+  const result = await pool.query('SELECT * FROM shops WHERE shop_number = $1', [String(shopNumber)]);
+  if (result.rows.length === 0 || !bcrypt.compareSync(password, result.rows[0].password)) {
     return res.status(401).json({ error: 'Invalid shop number or password' });
   }
-  const token = jwt.sign({ id: shop.id, shopNumber: shop.shopNumber }, JWT_SECRET, { expiresIn: '30d' });
+  const shop = result.rows[0];
+  const token = jwt.sign({ id: shop.id, shopNumber: shop.shop_number }, JWT_SECRET, { expiresIn: '30d' });
   res.cookie('shopToken', token, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-  res.json({ success: true, shopNumber: shop.shopNumber });
+  res.json({ success: true, shopNumber: shop.shop_number });
 });
 
 // AUTH: Shop logout
@@ -155,66 +197,94 @@ app.post('/api/shop/logout', (req, res) => {
 });
 
 // AUTH: Shop - get own products
-app.get('/api/shop/products', authShop, (req, res) => {
-  const db = loadDB();
-  const products = Object.values(db.products).filter(p => p.shopId === req.shopId).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json({ products: products.map(p => ({ ...p, image: p.image ? `/uploads/${p.image}` : null })) });
+app.get('/api/shop/products', authShop, async (req, res) => {
+  const result = await pool.query('SELECT * FROM products WHERE shop_id = $1 ORDER BY created_at DESC', [req.shopId]);
+  const products = result.rows.map(p => ({
+    id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
+    description: p.description, category: p.category,
+    image: p.image ? `/uploads/${p.image}` : null,
+    active: p.active, createdAt: p.created_at
+  }));
+  res.json({ products });
 });
 
 // AUTH: Shop - add product
-app.post('/api/shop/products', authShop, upload.single('image'), (req, res) => {
-  const db = loadDB();
+app.post('/api/shop/products', authShop, upload.single('image'), async (req, res) => {
   const { name, price, description, category } = req.body;
   if (!name || !price) return res.status(400).json({ error: 'Name and price required' });
 
-  const id = db.nextProductId++;
-  db.products[String(id)] = {
-    id, shopId: req.shopId, name, price: Number(price),
-    description: description || '', category: category || '',
-    image: req.file ? req.file.filename : null,
-    active: true, createdAt: new Date().toISOString()
-  };
-  saveDB(db);
-  res.json({ success: true, product: db.products[String(id)] });
+  const result = await pool.query(`
+    INSERT INTO products (shop_id, name, price, description, category, image)
+    VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+  `, [req.shopId, name, Number(price), description || '', category || '', req.file ? req.file.filename : null]);
+  const p = result.rows[0];
+  res.json({
+    success: true, product: {
+      id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
+      description: p.description, category: p.category,
+      image: p.image ? `/uploads/${p.image}` : null,
+      active: p.active, createdAt: p.created_at
+    }
+  });
 });
 
 // AUTH: Shop - edit product
-app.put('/api/shop/products/:id', authShop, upload.single('image'), (req, res) => {
-  const db = loadDB();
-  const product = db.products[req.params.id];
-  if (!product || product.shopId !== req.shopId) return res.status(404).json({ error: 'Not found' });
+app.put('/api/shop/products/:id', authShop, upload.single('image'), async (req, res) => {
+  const check = await pool.query('SELECT * FROM products WHERE id = $1 AND shop_id = $2', [req.params.id, req.shopId]);
+  if (check.rows.length === 0) return res.status(404).json({ error: 'Not found' });
 
   const { name, price, description, category, active } = req.body;
-  if (name) product.name = name;
-  if (price) product.price = Number(price);
-  if (description !== undefined) product.description = description;
-  if (category !== undefined) product.category = category;
-  if (active !== undefined) product.active = active === 'true' || active === true;
+  const product = check.rows[0];
+
+  let image = product.image;
   if (req.file) {
     if (product.image) {
       const oldPath = path.join(UPLOAD_DIR, product.image);
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
-    product.image = req.file.filename;
+    image = req.file.filename;
   }
-  saveDB(db);
-  res.json({ success: true, product });
+
+  const result = await pool.query(`
+    UPDATE products SET
+      name = COALESCE($1, name),
+      price = COALESCE($2, price),
+      description = COALESCE($3, description),
+      category = COALESCE($4, category),
+      active = COALESCE($5, active),
+      image = COALESCE($6, image)
+    WHERE id = $7 AND shop_id = $8 RETURNING *
+  `, [name || null, price ? Number(price) : null, description !== undefined ? description : null, category !== undefined ? category : null, active !== undefined ? (active === 'true' || active === true) : null, image || null, req.params.id, req.shopId]);
+
+  const p = result.rows[0];
+  res.json({
+    success: true, product: {
+      id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
+      description: p.description, category: p.category,
+      image: p.image ? `/uploads/${p.image}` : null,
+      active: p.active, createdAt: p.created_at
+    }
+  });
 });
 
-// AUTH: Shop - delete product
-app.delete('/api/shop/products/:id', authShop, (req, res) => {
-  const db = loadDB();
-  const product = db.products[req.params.id];
-  if (!product || product.shopId !== req.shopId) return res.status(404).json({ error: 'Not found' });
-  product.active = false;
-  saveDB(db);
+// AUTH: Shop - delete product (soft delete)
+app.delete('/api/shop/products/:id', authShop, async (req, res) => {
+  const check = await pool.query('SELECT * FROM products WHERE id = $1 AND shop_id = $2', [req.params.id, req.shopId]);
+  if (check.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  await pool.query('UPDATE products SET active = false WHERE id = $1', [req.params.id]);
   res.json({ success: true });
 });
 
 // AUTH: Shop - get own orders
-app.get('/api/shop/orders', authShop, (req, res) => {
-  const db = loadDB();
-  const orders = Object.values(db.orders).filter(o => o.shopId === req.shopId).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+app.get('/api/shop/orders', authShop, async (req, res) => {
+  const result = await pool.query('SELECT * FROM orders WHERE shop_id = $1 ORDER BY created_at DESC', [req.shopId]);
+  const orders = result.rows.map(o => ({
+    id: o.id, productId: o.product_id, shopId: o.shop_id,
+    productName: o.product_name, productPrice: Number(o.product_price), productImage: o.product_image,
+    shopNumber: o.shop_number, customerName: o.customer_name, customerPhone: o.customer_phone,
+    customerAddress: o.customer_address, quantity: o.quantity, totalAmount: Number(o.total_amount),
+    status: o.status, createdAt: o.created_at
+  }));
   res.json({ orders });
 });
 
@@ -233,65 +303,86 @@ app.post('/api/admin/logout', (req, res) => {
 });
 
 // ADMIN: All orders
-app.get('/api/admin/orders', authAdmin, (req, res) => {
-  const db = loadDB();
+app.get('/api/admin/orders', authAdmin, async (req, res) => {
   const { status, shop } = req.query;
-  let orders = Object.values(db.orders);
-  if (status) orders = orders.filter(o => o.status === status);
-  if (shop) orders = orders.filter(o => String(o.shopId) === String(shop));
-  orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  let query = 'SELECT * FROM orders WHERE 1=1';
+  const params = [];
+  let i = 1;
+  if (status) { query += ` AND status = $${i++}`; params.push(status); }
+  if (shop) { query += ` AND shop_id = $${i++}`; params.push(shop); }
+  query += ' ORDER BY created_at DESC';
+
+  const result = await pool.query(query, params);
+  const orders = result.rows.map(o => ({
+    id: o.id, productId: o.product_id, shopId: o.shop_id,
+    productName: o.product_name, productPrice: Number(o.product_price), productImage: o.product_image,
+    shopNumber: o.shop_number, customerName: o.customer_name, customerPhone: o.customer_phone,
+    customerAddress: o.customer_address, quantity: o.quantity, totalAmount: Number(o.total_amount),
+    status: o.status, createdAt: o.created_at
+  }));
   res.json({ orders });
 });
 
 // ADMIN: Update order status
-app.put('/api/admin/orders/:id', authAdmin, (req, res) => {
-  const db = loadDB();
-  const order = db.orders[req.params.id];
-  if (!order) return res.status(404).json({ error: 'Not found' });
+app.put('/api/admin/orders/:id', authAdmin, async (req, res) => {
   const { status } = req.body;
-  if (['pending', 'confirmed', 'dispatched', 'delivered', 'cancelled'].includes(status)) {
-    order.status = status;
-    saveDB(db);
+  if (!['pending', 'confirmed', 'dispatched', 'delivered', 'cancelled'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
   }
-  res.json({ success: true, order });
+  const result = await pool.query('UPDATE orders SET status = $1 WHERE id = $2 RETURNING *', [status, req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  const o = result.rows[0];
+  res.json({
+    success: true, order: {
+      id: o.id, productId: o.product_id, shopId: o.shop_id,
+      productName: o.product_name, productPrice: Number(o.product_price),
+      shopNumber: o.shop_number, customerName: o.customer_name, customerPhone: o.customer_phone,
+      customerAddress: o.customer_address, quantity: o.quantity, totalAmount: Number(o.total_amount),
+      status: o.status, createdAt: o.created_at
+    }
+  });
 });
 
 // ADMIN: Add shop
-app.post('/api/admin/shops', authAdmin, (req, res) => {
-  const db = loadDB();
+app.post('/api/admin/shops', authAdmin, async (req, res) => {
   const { shopNumber, password } = req.body;
   if (!shopNumber || !password) return res.status(400).json({ error: 'Shop number and password required' });
-  const exists = Object.values(db.shops).find(s => s.shopNumber === String(shopNumber));
-  if (exists) return res.status(400).json({ error: 'Shop already exists' });
 
-  const id = Math.max(...Object.keys(db.shops).map(Number)) + 1;
+  const exists = await pool.query('SELECT id FROM shops WHERE shop_number = $1', [String(shopNumber)]);
+  if (exists.rows.length > 0) return res.status(400).json({ error: 'Shop already exists' });
+
   const hash = bcrypt.hashSync(password, 10);
-  db.shops[String(id)] = { id, shopNumber: String(shopNumber), password: hash, createdAt: new Date().toISOString() };
-  saveDB(db);
-  res.json({ success: true, shop: { id, shopNumber } });
+  const result = await pool.query('INSERT INTO shops (shop_number, password) VALUES ($1, $2) RETURNING id, shop_number', [String(shopNumber), hash]);
+  res.json({ success: true, shop: { id: result.rows[0].id, shopNumber: result.rows[0].shop_number } });
 });
 
 // ADMIN: Dashboard stats
-app.get('/api/admin/stats', authAdmin, (req, res) => {
-  const db = loadDB();
-  const orders = Object.values(db.orders);
-  const products = Object.values(db.products).filter(p => p.active);
-  const shops = Object.values(db.shops);
+app.get('/api/admin/stats', authAdmin, async (req, res) => {
+  const [orders, products, shops] = await Promise.all([
+    pool.query('SELECT status, total_amount FROM orders'),
+    pool.query('SELECT COUNT(*) AS count FROM products WHERE active = true'),
+    pool.query('SELECT COUNT(*) AS count FROM shops')
+  ]);
+  const allOrders = orders.rows;
   res.json({
-    totalOrders: orders.length,
-    pendingOrders: orders.filter(o => o.status === 'pending').length,
-    totalRevenue: orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + o.totalAmount, 0),
-    totalProducts: products.length,
-    totalShops: shops.length,
+    totalOrders: allOrders.length,
+    pendingOrders: allOrders.filter(o => o.status === 'pending').length,
+    totalRevenue: allOrders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_amount), 0),
+    totalProducts: Number(products.rows[0].count),
+    totalShops: Number(shops.rows[0].count),
   });
 });
 
 // ADMIN: All shops
-app.get('/api/admin/shops', authAdmin, (req, res) => {
-  const db = loadDB();
-  const shops = Object.values(db.shops).map(s => ({
-    ...s, password: undefined,
-    productCount: Object.values(db.products).filter(p => p.shopId === s.id && p.active).length
+app.get('/api/admin/shops', authAdmin, async (req, res) => {
+  const result = await pool.query(`
+    SELECT s.*,
+      (SELECT COUNT(*) FROM products p WHERE p.shop_id = s.id AND p.active = true) AS product_count
+    FROM shops s ORDER BY s.id
+  `);
+  const shops = result.rows.map(s => ({
+    id: s.id, shopNumber: s.shop_number, name: s.name, createdAt: s.created_at,
+    productCount: Number(s.product_count)
   }));
   res.json({ shops });
 });
@@ -306,6 +397,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`ohrimmarketplace running at http://localhost:${PORT}`);
+initDB().then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`ohrimmarketplace running at http://localhost:${PORT}`);
+  });
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
 });
