@@ -17,8 +17,19 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const IMGBB_API_KEY = process.env.IMGBB_API_KEY || '2666f879b314106c4ee434bb754b6584';
+
+async function uploadToImgBB(buffer, filename) {
+  const base64 = buffer.toString('base64');
+  const formData = new URLSearchParams();
+  formData.append('key', IMGBB_API_KEY);
+  formData.append('image', base64);
+  formData.append('name', filename);
+  const resp = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body: formData });
+  const data = await resp.json();
+  if (data.success) return data.data.url;
+  throw new Error('ImgBB upload failed');
+}
 
 async function initDB() {
   await pool.query(`
@@ -67,13 +78,7 @@ async function initDB() {
 }
 
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-    filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `product_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
-    }
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -128,7 +133,7 @@ app.get('/api/products', async (req, res) => {
   const products = result.rows.map(p => ({
     id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
     description: p.description, category: p.category,
-    image: p.image ? `/uploads/${p.image}` : null,
+    image: p.image || null,
     active: p.active, createdAt: p.created_at, shopNumber: p.shop_number
   }));
   res.json({ products });
@@ -144,7 +149,7 @@ app.get('/api/products/:id', async (req, res) => {
   res.json({
     id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
     description: p.description, category: p.category,
-    image: p.image ? `/uploads/${p.image}` : null,
+    image: p.image || null,
     active: p.active, createdAt: p.created_at, shopNumber: p.shop_number
   });
 });
@@ -202,7 +207,7 @@ app.get('/api/shop/products', authShop, async (req, res) => {
   const products = result.rows.map(p => ({
     id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
     description: p.description, category: p.category,
-    image: p.image ? `/uploads/${p.image}` : null,
+    image: p.image || null,
     active: p.active, createdAt: p.created_at
   }));
   res.json({ products });
@@ -213,16 +218,25 @@ app.post('/api/shop/products', authShop, upload.single('image'), async (req, res
   const { name, price, description, category } = req.body;
   if (!name || !price) return res.status(400).json({ error: 'Name and price required' });
 
+  let imageUrl = null;
+  if (req.file) {
+    try {
+      imageUrl = await uploadToImgBB(req.file.buffer, `product_${Date.now()}`);
+    } catch (err) {
+      console.error('Image upload failed:', err.message);
+    }
+  }
+
   const result = await pool.query(`
     INSERT INTO products (shop_id, name, price, description, category, image)
     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
-  `, [req.shopId, name, Number(price), description || '', category || '', req.file ? req.file.filename : null]);
+  `, [req.shopId, name, Number(price), description || '', category || '', imageUrl]);
   const p = result.rows[0];
   res.json({
     success: true, product: {
       id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
       description: p.description, category: p.category,
-      image: p.image ? `/uploads/${p.image}` : null,
+      image: p.image || null,
       active: p.active, createdAt: p.created_at
     }
   });
@@ -238,11 +252,11 @@ app.put('/api/shop/products/:id', authShop, upload.single('image'), async (req, 
 
   let image = product.image;
   if (req.file) {
-    if (product.image) {
-      const oldPath = path.join(UPLOAD_DIR, product.image);
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    try {
+      image = await uploadToImgBB(req.file.buffer, `product_${Date.now()}`);
+    } catch (err) {
+      console.error('Image upload failed:', err.message);
     }
-    image = req.file.filename;
   }
 
   const result = await pool.query(`
@@ -261,7 +275,7 @@ app.put('/api/shop/products/:id', authShop, upload.single('image'), async (req, 
     success: true, product: {
       id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
       description: p.description, category: p.category,
-      image: p.image ? `/uploads/${p.image}` : null,
+      image: p.image || null,
       active: p.active, createdAt: p.created_at
     }
   });
@@ -280,7 +294,7 @@ app.get('/api/shop/orders', authShop, async (req, res) => {
   const result = await pool.query('SELECT * FROM orders WHERE shop_id = $1 ORDER BY created_at DESC', [req.shopId]);
   const orders = result.rows.map(o => ({
     id: o.id, productId: o.product_id, shopId: o.shop_id,
-    productName: o.product_name, productPrice: Number(o.product_price), productImage: o.product_image,
+    productName: o.product_name, productPrice: Number(o.product_price),     productImage: o.product_image,
     shopNumber: o.shop_number, customerName: o.customer_name, customerPhone: o.customer_phone,
     customerAddress: o.customer_address, quantity: o.quantity, totalAmount: Number(o.total_amount),
     status: o.status, createdAt: o.created_at
