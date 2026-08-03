@@ -21,14 +21,42 @@ const IMGBB_API_KEY = process.env.IMGBB_API_KEY || '2666f879b314106c4ee434bb754b
 
 async function uploadToImgBB(buffer, filename) {
   const base64 = buffer.toString('base64');
-  const formData = new URLSearchParams();
-  formData.append('key', IMGBB_API_KEY);
-  formData.append('image', base64);
-  formData.append('name', filename);
-  const resp = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body: formData });
-  const data = await resp.json();
-  if (data.success) return data.data.url;
-  throw new Error('ImgBB upload failed');
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const formData = new URLSearchParams();
+      formData.append('key', IMGBB_API_KEY);
+      formData.append('image', base64);
+      formData.append('name', filename);
+      const resp = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body: formData });
+      const data = await resp.json();
+      if (data.success) return data.data.url;
+      lastErr = new Error((data.error && (data.error.message || data.error.code)) || 'ImgBB rejected upload');
+    } catch (e) {
+      lastErr = e;
+    }
+    await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+  }
+  throw lastErr || new Error('ImgBB upload failed');
+}
+
+function saveLocal(buffer, originalName) {
+  const ext = (path.extname(originalName || '').toLowerCase());
+  const safeExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif'].includes(ext) ? ext : '.jpg';
+  const filename = `product_${Date.now()}_${Math.random().toString(36).slice(2, 12)}${safeExt}`;
+  const dest = path.join(__dirname, 'public', 'uploads', filename);
+  fs.writeFileSync(dest, buffer);
+  return `/uploads/${filename}`;
+}
+
+async function storeImage(buffer, originalName) {
+  try {
+    const url = await uploadToImgBB(buffer, `product_${Date.now()}`);
+    return { url, host: 'imgbb' };
+  } catch (err) {
+    console.error('ImgBB upload failed, falling back to local storage:', err.message);
+    return { url: saveLocal(buffer, originalName), host: 'local' };
+  }
 }
 
 async function initDB() {
@@ -81,8 +109,9 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    cb(null, allowed.includes(file.mimetype));
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(new Error('Unsupported image type. Please upload JPG, PNG, GIF, WebP or HEIC.'));
   }
 });
 
@@ -219,11 +248,15 @@ app.post('/api/shop/products', authShop, upload.single('image'), async (req, res
   if (!name || !price) return res.status(400).json({ error: 'Name and price required' });
 
   let imageUrl = null;
+  let imageHost = 'none';
   if (req.file) {
     try {
-      imageUrl = await uploadToImgBB(req.file.buffer, `product_${Date.now()}`);
+      const img = await storeImage(req.file.buffer, req.file.originalname);
+      imageUrl = img.url;
+      imageHost = img.host;
     } catch (err) {
-      console.error('Image upload failed:', err.message);
+      console.error('Image storage failed:', err.message);
+      return res.status(500).json({ error: 'Image could not be uploaded. Please try again with a JPG or PNG under 5MB.' });
     }
   }
 
@@ -238,7 +271,8 @@ app.post('/api/shop/products', authShop, upload.single('image'), async (req, res
       description: p.description, category: p.category,
       image: p.image || null,
       active: p.active, createdAt: p.created_at
-    }
+    },
+    imageHost
   });
 });
 
@@ -251,11 +285,15 @@ app.put('/api/shop/products/:id', authShop, upload.single('image'), async (req, 
   const product = check.rows[0];
 
   let image = product.image;
+  let imageHost = 'none';
   if (req.file) {
     try {
-      image = await uploadToImgBB(req.file.buffer, `product_${Date.now()}`);
+      const img = await storeImage(req.file.buffer, req.file.originalname);
+      image = img.url;
+      imageHost = img.host;
     } catch (err) {
-      console.error('Image upload failed:', err.message);
+      console.error('Image storage failed:', err.message);
+      return res.status(500).json({ error: 'Image could not be uploaded. Please try again with a JPG or PNG under 5MB.' });
     }
   }
 
@@ -277,7 +315,8 @@ app.put('/api/shop/products/:id', authShop, upload.single('image'), async (req, 
       description: p.description, category: p.category,
       image: p.image || null,
       active: p.active, createdAt: p.created_at
-    }
+    },
+    imageHost
   });
 });
 
@@ -408,6 +447,12 @@ app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'adm
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  if (err.message && err.message.startsWith('Unsupported image type')) {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'Image too large (max 5MB). Please use a smaller image.' });
+  }
   res.status(500).json({ error: 'Something went wrong' });
 });
 

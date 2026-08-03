@@ -301,7 +301,7 @@ async function loadMyOrders() {
     if (!myOrders.length) { el.innerHTML = '<div class="empty">No orders yet</div>'; return; }
     el.innerHTML = myOrders.map(o => `
       <div class="order-item">
-        ${o.productImage ? '<img class="order-img" src="/uploads/' + o.productImage + '">' : '<div class="order-img" style="display:flex;align-items:center;justify-content:center">📦</div>'}
+        ${o.productImage ? '<img class="order-img" src="' + o.productImage + '">' : '<div class="order-img" style="display:flex;align-items:center;justify-content:center">📦</div>'}
         <div class="order-details">
           <div class="order-product">${esc(o.productName)} × ${o.quantity}</div>
           <div class="order-customer">👤 ${esc(o.customerName)} &nbsp; 📱 ${esc(o.customerPhone)}</div>

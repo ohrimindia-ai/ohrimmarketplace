@@ -243,7 +243,7 @@ function renderOrders() {
         <span style="font-size:0.75rem;color:#999">${new Date(o.createdAt).toLocaleString()}</span>
       </div>
       <div class="order-body">
-        ${o.productImage ? '<img class="order-img" src="/uploads/' + o.productImage + '">' : '<div class="order-img" style="display:flex;align-items:center;justify-content:center">📦</div>'}
+        ${o.productImage ? '<img class="order-img" src="' + o.productImage + '">' : '<div class="order-img" style="display:flex;align-items:center;justify-content:center">📦</div>'}
         <div class="order-info">
           <div class="order-product">${esc(o.productName)} × ${o.quantity}</div>
           <div class="order-customer">👤 ${esc(o.customerName)} &nbsp; 📱 ${esc(o.customerPhone)}</div>
