@@ -4,7 +4,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const path = require('path');
-const fs = require('fs');
 const { Pool } = require('pg');
 
 const app = express();
@@ -40,23 +39,28 @@ async function uploadToImgBB(buffer, filename) {
   throw lastErr || new Error('ImgBB upload failed');
 }
 
-function saveLocal(buffer, originalName) {
-  const ext = (path.extname(originalName || '').toLowerCase());
-  const safeExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif'].includes(ext) ? ext : '.jpg';
-  const filename = `product_${Date.now()}_${Math.random().toString(36).slice(2, 12)}${safeExt}`;
-  const dest = path.join(__dirname, 'public', 'uploads', filename);
-  fs.writeFileSync(dest, buffer);
-  return `/uploads/${filename}`;
+function saveLocalData(buffer, mimetype) {
+  return { mime: mimetype || 'image/jpeg', data: buffer.toString('base64') };
 }
 
-async function storeImage(buffer, originalName) {
+async function storeImage(buffer, mimetype) {
   try {
     const url = await uploadToImgBB(buffer, `product_${Date.now()}`);
     return { url, host: 'imgbb' };
   } catch (err) {
-    console.error('ImgBB upload failed, falling back to local storage:', err.message);
-    return { url: saveLocal(buffer, originalName), host: 'local' };
+    console.error('ImgBB upload failed, falling back to database storage:', err.message);
+    return { host: 'local', ...saveLocalData(buffer, mimetype) };
   }
+}
+
+async function saveImageForProduct(productId, img) {
+  if (!img || img.host === 'imgbb') return img ? img.url : null;
+  await pool.query(`
+    INSERT INTO product_images (product_id, mime, data)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (product_id) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data
+  `, [productId, img.mime, img.data]);
+  return `/api/image/${productId}`;
 }
 
 async function initDB() {
@@ -77,6 +81,12 @@ async function initDB() {
       category TEXT DEFAULT '',
       image TEXT,
       active BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS product_images (
+      product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+      mime TEXT NOT NULL,
+      data TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS orders (
@@ -183,6 +193,22 @@ app.get('/api/products/:id', async (req, res) => {
   });
 });
 
+// PUBLIC: Database-stored image (fallback when ImgBB is unavailable)
+app.get('/api/image/:id', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT mime, data FROM product_images WHERE product_id = $1', [req.params.id]);
+    if (result.rows.length === 0) return res.status(404).send('Not found');
+    const row = result.rows[0];
+    const buf = Buffer.from(row.data, 'base64');
+    res.set('Content-Type', row.mime || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(buf);
+  } catch (err) {
+    console.error('Image fetch failed:', err.message);
+    res.status(500).send('Error');
+  }
+});
+
 // PUBLIC: Place order
 app.post('/api/orders', async (req, res) => {
   const { productId, customerName, customerPhone, customerAddress, quantity } = req.body;
@@ -249,10 +275,10 @@ app.post('/api/shop/products', authShop, upload.single('image'), async (req, res
 
   let imageUrl = null;
   let imageHost = 'none';
+  let img = null;
   if (req.file) {
     try {
-      const img = await storeImage(req.file.buffer, req.file.originalname);
-      imageUrl = img.url;
+      img = await storeImage(req.file.buffer, req.file.mimetype);
       imageHost = img.host;
     } catch (err) {
       console.error('Image storage failed:', err.message);
@@ -263,8 +289,14 @@ app.post('/api/shop/products', authShop, upload.single('image'), async (req, res
   const result = await pool.query(`
     INSERT INTO products (shop_id, name, price, description, category, image)
     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
-  `, [req.shopId, name, Number(price), description || '', category || '', imageUrl]);
+  `, [req.shopId, name, Number(price), description || '', category || '', img && img.host === 'imgbb' ? img.url : null]);
   const p = result.rows[0];
+
+  if (img && img.host === 'local') {
+    imageUrl = await saveImageForProduct(p.id, img);
+    await pool.query('UPDATE products SET image = $1 WHERE id = $2', [imageUrl, p.id]);
+    p.image = imageUrl;
+  }
   res.json({
     success: true, product: {
       id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
@@ -286,11 +318,12 @@ app.put('/api/shop/products/:id', authShop, upload.single('image'), async (req, 
 
   let image = product.image;
   let imageHost = 'none';
+  let img = null;
   if (req.file) {
     try {
-      const img = await storeImage(req.file.buffer, req.file.originalname);
-      image = img.url;
+      img = await storeImage(req.file.buffer, req.file.mimetype);
       imageHost = img.host;
+      image = img.host === 'imgbb' ? img.url : null;
     } catch (err) {
       console.error('Image storage failed:', err.message);
       return res.status(500).json({ error: 'Image could not be uploaded. Please try again with a JPG or PNG under 5MB.' });
@@ -309,6 +342,12 @@ app.put('/api/shop/products/:id', authShop, upload.single('image'), async (req, 
   `, [name || null, price ? Number(price) : null, description !== undefined ? description : null, category !== undefined ? category : null, active !== undefined ? (active === 'true' || active === true) : null, image || null, req.params.id, req.shopId]);
 
   const p = result.rows[0];
+
+  if (img && img.host === 'local') {
+    image = await saveImageForProduct(p.id, img);
+    await pool.query('UPDATE products SET image = $1 WHERE id = $2', [image, p.id]);
+    p.image = image;
+  }
   res.json({
     success: true, product: {
       id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
