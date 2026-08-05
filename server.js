@@ -256,7 +256,7 @@ app.get('/api/shops', async (req, res) => {
 // PUBLIC: Categories list (managed categories + legacy product categories, with active product counts)
 app.get('/api/categories', async (req, res) => {
   const result = await pool.query(`
-    SELECT name, COUNT(p.id) AS count FROM (
+    SELECT name, COUNT(t.id) AS count FROM (
       SELECT c.name AS name, p.id
       FROM categories c
       LEFT JOIN products p ON LOWER(p.category) = LOWER(c.name) AND p.active = true
