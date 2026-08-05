@@ -73,6 +73,29 @@ a { color: inherit; text-decoration: none; }
 .shop-number { font-size: 1.3rem; font-weight: 700; }
 .shop-meta { font-size: 0.8rem; color: #888; margin-top: 4px; }
 
+.admin-product { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 12px; margin-bottom: 10px; display: flex; gap: 12px; align-items: center; }
+.admin-product-img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: #f0f0f0; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+.admin-product-info { flex: 1; min-width: 0; }
+.admin-product-name { font-weight: 600; font-size: 0.9rem; }
+.admin-product-meta { font-size: 0.75rem; color: #888; margin-top: 2px; }
+.admin-product-cat { display: inline-block; background: #fff8f0; border: 1px solid #f5d9b8; color: #e67e22; border-radius: 4px; padding: 1px 8px; font-size: 0.7rem; font-weight: 600; margin-top: 4px; }
+.admin-product-cat.inactive { background: #ffebee; border-color: #f5c6c6; color: #e74c3c; }
+
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 300; align-items: center; justify-content: center; }
+.modal-overlay.show { display: flex; }
+.modal { background: #fff; border-radius: 16px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 24px; position: relative; }
+.modal-close { position: absolute; top: 12px; right: 16px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #999; }
+.modal h3 { margin-bottom: 16px; font-size: 1rem; }
+.modal label { display: block; font-size: 0.8rem; color: #666; margin-bottom: 4px; margin-top: 10px; }
+.modal input, .modal select, .modal textarea { width: 100%; padding: 9px 11px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.9rem; outline: none; }
+.modal textarea { resize: vertical; min-height: 60px; }
+.modal input:focus, .modal select:focus, .modal textarea:focus { border-color: #e67e22; }
+.modal-save { width: 100%; padding: 12px; background: #e67e22; color: #fff; border: none; border-radius: 8px; font-size: 0.95rem; font-weight: 600; cursor: pointer; margin-top: 16px; }
+.modal-save:hover { background: #d35400; }
+.modal-check { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.modal-check input { width: auto; }
+.modal-check label { margin: 0; }
+
 .empty { text-align: center; padding: 40px; color: #999; }
 
 .toast { position: fixed; bottom: 24px; right: 24px; background: #1a1a1a; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 0.85rem; z-index: 200; display: none; }
@@ -123,12 +146,18 @@ a { color: inherit; text-decoration: none; }
 
     <div class="tabs">
       <div class="tab active" onclick="switchTab('ordersPanel', this)">All Orders</div>
+      <div class="tab" onclick="switchTab('productsPanel', this)">Products</div>
       <div class="tab" onclick="switchTab('shopsPanel', this)">Shops</div>
     </div>
 
     <div id="ordersPanel" class="panel active">
       <div class="filter-row" id="statusFilters"></div>
       <div id="ordersList"></div>
+    </div>
+
+    <div id="productsPanel" class="panel">
+      <div class="filter-row" id="categoryFilters"></div>
+      <div id="adminProductsList"></div>
     </div>
 
     <div id="shopsPanel" class="panel">
@@ -147,9 +176,32 @@ a { color: inherit; text-decoration: none; }
 
 <div class="toast" id="toast"></div>
 
+<div class="modal-overlay" id="editProductModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeAdminEdit()">&times;</button>
+    <h3>Edit Product</h3>
+    <input type="hidden" id="aeditId">
+    <label>Product Name</label>
+    <input type="text" id="aeditName">
+    <label>Price (₹)</label>
+    <input type="number" id="aeditPrice" min="1">
+    <label>Category</label>
+    <select id="aeditCategory"></select>
+    <label>Description</label>
+    <textarea id="aeditDesc"></textarea>
+    <div class="modal-check">
+      <input type="checkbox" id="aeditActive" checked>
+      <label for="aeditActive">Product active (visible in store)</label>
+    </div>
+    <button class="modal-save" onclick="saveAdminEdit()">Save Changes</button>
+  </div>
+</div>
+
 <script>
 let allOrders = [];
 let statusFilter = '';
+let allAdminProducts = [];
+let adminCatFilter = '';
 
 async function doLogin() {
   const pass = document.getElementById('loginPass').value;
@@ -182,13 +234,16 @@ function switchTab(name, el) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById(name).classList.add('active');
+  if (name === 'productsPanel') { loadAdminProducts(); renderCategoryFilters(); }
 }
 
 async function loadAll() {
   loadStats();
   loadOrders();
   loadShops();
+  loadAdminProducts();
   renderStatusFilters();
+  renderCategoryFilters();
 }
 
 async function loadStats() {
@@ -309,6 +364,99 @@ async function addShop() {
   } catch { showToast('Error', 'error'); }
 }
 
+function renderCategoryFilters() {
+  const set = new Set(allAdminProducts.map(p => p.category || 'General').filter(Boolean));
+  const cats = ['', ...set];
+  document.getElementById('categoryFilters').innerHTML = cats.map(c => {
+    const label = c === '' ? 'All' : c;
+    return `<button class="filter-btn ${c === adminCatFilter ? 'active' : ''}" onclick="setAdminCatFilter('${esc(c)}', this)">${esc(label)}</button>`;
+  }).join('');
+}
+
+function setAdminCatFilter(c, el) {
+  adminCatFilter = c;
+  renderCategoryFilters();
+  renderAdminProducts();
+}
+
+async function loadAdminProducts() {
+  try {
+    const res = await fetch('/api/admin/products');
+    const data = await res.json();
+    allAdminProducts = data.products || [];
+    renderAdminProducts();
+  } catch { }
+}
+
+function renderAdminProducts() {
+  let list = adminCatFilter ? allAdminProducts.filter(p => (p.category || 'General') === adminCatFilter) : allAdminProducts;
+  const el = document.getElementById('adminProductsList');
+  if (!list.length) { el.innerHTML = '<div class="empty">No products found</div>'; return; }
+  el.innerHTML = list.map(p => `
+    <div class="admin-product">
+      ${p.image ? '<img class="admin-product-img" src="' + p.image + '">' : '<div class="admin-product-img">📦</div>'}
+      <div class="admin-product-info">
+        <div class="admin-product-name">${esc(p.name)}</div>
+        <div class="admin-product-meta">₹${Number(p.price).toLocaleString('en-IN')} &nbsp;•&nbsp; Shop #${p.shopNumber}</div>
+        <div><span class="admin-product-cat ${p.active ? '' : 'inactive'}">${esc(p.category || 'General')}</span> ${p.active ? '' : '<span class="admin-product-cat inactive">Hidden</span>'}</div>
+      </div>
+      <button class="btn" onclick="openAdminEdit(${p.id})">Edit</button>
+    </div>
+  `).join('');
+}
+
+const ADMIN_CATEGORIES = ['General', 'Clothing', 'Electronics', 'Grocery', 'Footwear', 'Accessories', 'Home & Kitchen', 'Beauty', 'Sports', 'Other'];
+
+function fillAdminCategorySelect(sel, current) {
+  let html = '';
+  const opts = current && !ADMIN_CATEGORIES.includes(current) ? [current, ...ADMIN_CATEGORIES] : ADMIN_CATEGORIES;
+  opts.forEach(c => {
+    html += `<option value="${esc(c)}" ${c === current ? 'selected' : ''}>${esc(c)}</option>`;
+  });
+  sel.innerHTML = html;
+}
+
+function openAdminEdit(id) {
+  const p = allAdminProducts.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('aeditId').value = p.id;
+  document.getElementById('aeditName').value = p.name;
+  document.getElementById('aeditPrice').value = p.price;
+  document.getElementById('aeditDesc').value = p.description || '';
+  fillAdminCategorySelect(document.getElementById('aeditCategory'), p.category || 'General');
+  document.getElementById('aeditActive').checked = !!p.active;
+  document.getElementById('editProductModal').classList.add('show');
+}
+
+function closeAdminEdit() {
+  document.getElementById('editProductModal').classList.remove('show');
+}
+
+async function saveAdminEdit() {
+  const id = document.getElementById('aeditId').value;
+  const name = document.getElementById('aeditName').value;
+  const price = document.getElementById('aeditPrice').value;
+  if (!name || !price) { showToast('Fill name and price', 'error'); return; }
+  try {
+    const res = await fetch('/api/admin/products/' + id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name, price,
+        category: document.getElementById('aeditCategory').value,
+        description: document.getElementById('aeditDesc').value,
+        active: document.getElementById('aeditActive').checked
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Product updated!', 'success');
+      closeAdminEdit();
+      loadAdminProducts();
+      loadStats();
+    } else { showToast(data.error, 'error'); }
+  } catch { showToast('Error', 'error'); }
+}
+
 function showToast(msg, type) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -317,7 +465,10 @@ function showToast(msg, type) {
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') doLogin(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') doLogin();
+  if (e.key === 'Escape') closeAdminEdit();
+});
 </script>
 </body>
 </html>

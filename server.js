@@ -152,7 +152,7 @@ function authAdmin(req, res, next) {
 
 // PUBLIC: List all products
 app.get('/api/products', async (req, res) => {
-  const { shop, search, sort } = req.query;
+  const { shop, search, sort, category } = req.query;
   let query = `
     SELECT p.*, s.shop_number
     FROM products p JOIN shops s ON p.shop_id = s.id
@@ -163,6 +163,7 @@ app.get('/api/products', async (req, res) => {
 
   if (shop) { query += ` AND p.shop_id = $${i++}`; params.push(shop); }
   if (search) { query += ` AND (LOWER(p.name) LIKE $${i} OR LOWER(p.description) LIKE $${i})`; params.push(`%${search.toLowerCase()}%`); i++; }
+  if (category) { query += ` AND LOWER(p.category) = LOWER($${i++})`; params.push(category); }
 
   if (sort === 'price_low') query += ' ORDER BY p.price ASC';
   else if (sort === 'price_high') query += ' ORDER BY p.price DESC';
@@ -235,6 +236,18 @@ app.get('/api/shops', async (req, res) => {
   `);
   const shops = result.rows.map(s => ({ id: s.id, shopNumber: s.shop_number, productCount: Number(s.product_count) }));
   res.json({ shops });
+});
+
+// PUBLIC: Categories list (with active product counts)
+app.get('/api/categories', async (req, res) => {
+  const result = await pool.query(`
+    SELECT p.category, COUNT(*) AS count
+    FROM products p
+    WHERE p.active = true AND p.category IS NOT NULL AND p.category != ''
+    GROUP BY p.category
+    ORDER BY COUNT(*) DESC, p.category
+  `);
+  res.json({ categories: result.rows.map(r => ({ name: r.category, count: Number(r.count) })) });
 });
 
 // AUTH: Shop login
@@ -477,6 +490,52 @@ app.get('/api/admin/shops', authAdmin, async (req, res) => {
     productCount: Number(s.product_count)
   }));
   res.json({ shops });
+});
+
+// ADMIN: All products
+app.get('/api/admin/products', authAdmin, async (req, res) => {
+  const result = await pool.query(`
+    SELECT p.*, s.shop_number
+    FROM products p JOIN shops s ON p.shop_id = s.id
+    ORDER BY p.created_at DESC
+  `);
+  const products = result.rows.map(p => ({
+    id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
+    description: p.description, category: p.category,
+    image: p.image || null,
+    active: p.active, createdAt: p.created_at, shopNumber: p.shop_number
+  }));
+  res.json({ products });
+});
+
+// ADMIN: Update product (name, price, category, description, active)
+app.put('/api/admin/products/:id', authAdmin, async (req, res) => {
+  const { name, price, description, category, active } = req.body;
+  const result = await pool.query(`
+    UPDATE products SET
+      name = COALESCE($1, name),
+      price = COALESCE($2, price),
+      description = COALESCE($3, description),
+      category = COALESCE($4, category),
+      active = COALESCE($5, active)
+    WHERE id = $6 RETURNING *
+  `, [
+    name !== undefined ? name : null,
+    price !== undefined ? Number(price) : null,
+    description !== undefined ? description : null,
+    category !== undefined ? category : null,
+    active !== undefined ? (active === 'true' || active === true) : null,
+    req.params.id
+  ]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  const p = result.rows[0];
+  res.json({
+    success: true, product: {
+      id: p.id, shopId: p.shop_id, name: p.name, price: Number(p.price),
+      description: p.description, category: p.category,
+      image: p.image || null, active: p.active, createdAt: p.created_at
+    }
+  });
 });
 
 // Page routes
