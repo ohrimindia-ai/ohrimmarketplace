@@ -235,6 +235,7 @@ async function doLogin() {
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('app').style.display = 'block';
       document.getElementById('shopLabel').textContent = 'Shop #' + data.shopNumber;
+      loadCategories();
       loadMyProducts();
       loadMyOrders();
     } else {
@@ -294,15 +295,22 @@ async function addProduct() {
   } catch { showToast('Error', 'error'); }
 }
 
-const CATEGORIES = ['General', 'Clothing', 'Electronics', 'Grocery', 'Footwear', 'Accessories', 'Home & Kitchen', 'Beauty', 'Sports', 'Other'];
+let allCategories = ['General'];
+
+async function loadCategories() {
+  try {
+    const res = await fetch('/api/categories');
+    const data = await res.json();
+    allCategories = (data.categories || []).map(c => c.name);
+    fillCategorySelect(document.getElementById('prodCategory'), 'General');
+  } catch { }
+}
 
 function fillCategorySelect(sel, current) {
-  let html = '';
-  const opts = current && !CATEGORIES.includes(current) ? [current, ...CATEGORIES] : CATEGORIES;
-  opts.forEach(c => {
-    html += `<option value="${esc(c)}" ${c === current ? 'selected' : ''}>${esc(c)}</option>`;
-  });
-  sel.innerHTML = html;
+  const opts = current && !allCategories.includes(current) ? [current, ...allCategories] : allCategories;
+  sel.innerHTML = opts.map(c =>
+    `<option value="${esc(c)}" ${c === current ? 'selected' : ''}>${esc(c)}</option>`
+  ).join('');
 }
 
 function editProduct(id) {

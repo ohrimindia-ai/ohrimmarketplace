@@ -147,6 +147,7 @@ a { color: inherit; text-decoration: none; }
     <div class="tabs">
       <div class="tab active" onclick="switchTab('ordersPanel', this)">All Orders</div>
       <div class="tab" onclick="switchTab('productsPanel', this)">Products</div>
+      <div class="tab" onclick="switchTab('categoriesPanel', this)">Categories</div>
       <div class="tab" onclick="switchTab('shopsPanel', this)">Shops</div>
     </div>
 
@@ -158,6 +159,17 @@ a { color: inherit; text-decoration: none; }
     <div id="productsPanel" class="panel">
       <div class="filter-row" id="categoryFilters"></div>
       <div id="adminProductsList"></div>
+    </div>
+
+    <div id="categoriesPanel" class="panel">
+      <div class="add-shop-card">
+        <h3>Add New Category</h3>
+        <div class="inline-form">
+          <input type="text" id="newCatName" placeholder="Category name">
+          <button onclick="addCategory()">Add Category</button>
+        </div>
+      </div>
+      <div id="categoriesList"></div>
     </div>
 
     <div id="shopsPanel" class="panel">
@@ -235,6 +247,7 @@ function switchTab(name, el) {
   el.classList.add('active');
   document.getElementById(name).classList.add('active');
   if (name === 'productsPanel') { loadAdminProducts(); renderCategoryFilters(); }
+  if (name === 'categoriesPanel') loadAdminCategories();
 }
 
 async function loadAll() {
@@ -242,6 +255,7 @@ async function loadAll() {
   loadOrders();
   loadShops();
   loadAdminProducts();
+  loadAdminCategories();
   renderStatusFilters();
   renderCategoryFilters();
 }
@@ -405,15 +419,86 @@ function renderAdminProducts() {
   `).join('');
 }
 
-const ADMIN_CATEGORIES = ['General', 'Clothing', 'Electronics', 'Grocery', 'Footwear', 'Accessories', 'Home & Kitchen', 'Beauty', 'Sports', 'Other'];
+let adminCategories = [];
+
+async function loadAdminCategories() {
+  try {
+    const res = await fetch('/api/admin/categories');
+    const data = await res.json();
+    adminCategories = data.categories || [];
+    renderAdminCategories();
+  } catch { }
+}
+
+function renderAdminCategories() {
+  const el = document.getElementById('categoriesList');
+  if (!adminCategories.length) { el.innerHTML = '<div class="empty">No categories yet</div>'; return; }
+  el.innerHTML = adminCategories.map(c => `
+    <div class="admin-product">
+      <div class="admin-product-info">
+        <div class="admin-product-name">${esc(c.name)}</div>
+        <div class="admin-product-meta">${c.count} active product${c.count === 1 ? '' : 's'}</div>
+      </div>
+      <input type="text" id="catRename_${c.id}" value="${esc(c.name)}" style="flex:1;min-width:140px;max-width:260px;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:0.85rem">
+      <button class="btn btn-orange" onclick="renameCategory(${c.id})">Rename</button>
+      <button class="btn btn-red" onclick="deleteCategory(${c.id})">Delete</button>
+    </div>
+  `).join('');
+}
+
+async function addCategory() {
+  const name = document.getElementById('newCatName').value.trim();
+  if (!name) { showToast('Enter category name', 'error'); return; }
+  try {
+    const res = await fetch('/api/admin/categories', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Category added!', 'success');
+      document.getElementById('newCatName').value = '';
+      loadAdminCategories();
+    } else { showToast(data.error, 'error'); }
+  } catch { showToast('Error', 'error'); }
+}
+
+async function renameCategory(id) {
+  const name = document.getElementById('catRename_' + id).value.trim();
+  if (!name) { showToast('Enter category name', 'error'); return; }
+  try {
+    const res = await fetch('/api/admin/categories/' + id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Category renamed!', 'success');
+      loadAdminCategories();
+      loadAdminProducts();
+    } else { showToast(data.error, 'error'); }
+  } catch { showToast('Error', 'error'); }
+}
+
+async function deleteCategory(id) {
+  if (!confirm('Delete this category? Products in it will move to "General".')) return;
+  try {
+    const res = await fetch('/api/admin/categories/' + id, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Category deleted', 'success');
+      loadAdminCategories();
+      loadAdminProducts();
+    } else { showToast(data.error, 'error'); }
+  } catch { showToast('Error', 'error'); }
+}
 
 function fillAdminCategorySelect(sel, current) {
-  let html = '';
-  const opts = current && !ADMIN_CATEGORIES.includes(current) ? [current, ...ADMIN_CATEGORIES] : ADMIN_CATEGORIES;
-  opts.forEach(c => {
-    html += `<option value="${esc(c)}" ${c === current ? 'selected' : ''}>${esc(c)}</option>`;
-  });
-  sel.innerHTML = html;
+  const list = adminCategories.map(c => c.name);
+  const opts = current && !list.includes(current) ? [current, ...list] : list;
+  sel.innerHTML = opts.map(c =>
+    `<option value="${esc(c)}" ${c === current ? 'selected' : ''}>${esc(c)}</option>`
+  ).join('');
 }
 
 function openAdminEdit(id) {

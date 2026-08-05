@@ -89,6 +89,11 @@ async function initDB() {
       data TEXT NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS categories (
+      id SERIAL PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS orders (
       id SERIAL PRIMARY KEY,
       product_id INTEGER REFERENCES products(id),
@@ -112,6 +117,16 @@ async function initDB() {
     const hash = bcrypt.hashSync('shop123', 10);
     await pool.query('INSERT INTO shops (shop_number, password, name) VALUES ($1, $2, $3)', ['1', hash, 'Shop 1']);
   }
+
+  const defaultCats = ['General', 'Clothing', 'Electronics', 'Grocery', 'Footwear', 'Accessories', 'Home & Kitchen', 'Beauty', 'Sports', 'Other'];
+  for (const name of defaultCats) {
+    await pool.query('INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [name]);
+  }
+  const legacy = await pool.query('SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != \'\'');
+  for (const r of legacy.rows) {
+    await pool.query('INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [r.category]);
+  }
+
   console.log('Database initialized');
 }
 
@@ -238,16 +253,23 @@ app.get('/api/shops', async (req, res) => {
   res.json({ shops });
 });
 
-// PUBLIC: Categories list (with active product counts)
+// PUBLIC: Categories list (managed categories + legacy product categories, with active product counts)
 app.get('/api/categories', async (req, res) => {
   const result = await pool.query(`
-    SELECT p.category, COUNT(*) AS count
-    FROM products p
-    WHERE p.active = true AND p.category IS NOT NULL AND p.category != ''
-    GROUP BY p.category
-    ORDER BY COUNT(*) DESC, p.category
+    SELECT name, COUNT(p.id) AS count FROM (
+      SELECT c.name AS name, p.id
+      FROM categories c
+      LEFT JOIN products p ON LOWER(p.category) = LOWER(c.name) AND p.active = true
+      UNION ALL
+      SELECT p.category AS name, p.id
+      FROM products p
+      WHERE p.active = true AND p.category IS NOT NULL AND p.category != ''
+        AND NOT EXISTS (SELECT 1 FROM categories c WHERE LOWER(c.name) = LOWER(p.category))
+    ) t
+    GROUP BY name
+    ORDER BY count DESC, name
   `);
-  res.json({ categories: result.rows.map(r => ({ name: r.category, count: Number(r.count) })) });
+  res.json({ categories: result.rows.map(r => ({ name: r.name, count: Number(r.count) })) });
 });
 
 // AUTH: Shop login
@@ -536,6 +558,56 @@ app.put('/api/admin/products/:id', authAdmin, async (req, res) => {
       image: p.image || null, active: p.active, createdAt: p.created_at
     }
   });
+});
+
+// ADMIN: Categories list (with active product counts)
+app.get('/api/admin/categories', authAdmin, async (req, res) => {
+  const result = await pool.query(`
+    SELECT c.id, c.name,
+      (SELECT COUNT(*) FROM products p WHERE LOWER(p.category) = LOWER(c.name) AND p.active = true) AS count
+    FROM categories c
+    ORDER BY c.name
+  `);
+  res.json({ categories: result.rows.map(r => ({ id: r.id, name: r.name, count: Number(r.count) })) });
+});
+
+// ADMIN: Add category
+app.post('/api/admin/categories', authAdmin, async (req, res) => {
+  const raw = (req.body && req.body.name) || '';
+  const name = String(raw).trim();
+  if (!name) return res.status(400).json({ error: 'Category name required' });
+  try {
+    const result = await pool.query('INSERT INTO categories (name) VALUES ($1) RETURNING id, name', [name]);
+    res.json({ success: true, category: { id: result.rows[0].id, name: result.rows[0].name } });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'Category already exists' });
+    res.status(500).json({ error: 'Could not add category' });
+  }
+});
+
+// ADMIN: Rename category (also updates all products in that category)
+app.put('/api/admin/categories/:id', authAdmin, async (req, res) => {
+  const raw = (req.body && req.body.name) || '';
+  const newName = String(raw).trim();
+  if (!newName) return res.status(400).json({ error: 'Category name required' });
+  const old = await pool.query('SELECT * FROM categories WHERE id = $1', [req.params.id]);
+  if (old.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+
+  const dup = await pool.query('SELECT id FROM categories WHERE LOWER(name) = LOWER($1) AND id != $2', [newName, req.params.id]);
+  if (dup.rows.length > 0) return res.status(400).json({ error: 'Category already exists' });
+
+  await pool.query('UPDATE categories SET name = $1 WHERE id = $2', [newName, req.params.id]);
+  await pool.query('UPDATE products SET category = $1 WHERE LOWER(category) = LOWER($2)', [newName, old.rows[0].name]);
+  res.json({ success: true, name: newName });
+});
+
+// ADMIN: Delete category (moves its products to General)
+app.delete('/api/admin/categories/:id', authAdmin, async (req, res) => {
+  const old = await pool.query('SELECT * FROM categories WHERE id = $1', [req.params.id]);
+  if (old.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  await pool.query('UPDATE products SET category = $1 WHERE LOWER(category) = LOWER($2)', ['General', old.rows[0].name]);
+  await pool.query('DELETE FROM categories WHERE id = $1', [req.params.id]);
+  res.json({ success: true });
 });
 
 // Page routes
