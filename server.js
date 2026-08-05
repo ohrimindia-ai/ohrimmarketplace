@@ -16,6 +16,10 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled promise rejection:', err);
+});
+
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY || '2666f879b314106c4ee434bb754b6584';
 
 async function uploadToImgBB(buffer, filename) {
