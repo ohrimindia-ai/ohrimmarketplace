@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inquiry - ohrim marketplace</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f8f4; color: #1a1a1a; }
+
+.topbar { background: #1a1a1a; color: #aaa; font-size: 0.75rem; padding: 8px 24px; display: flex; justify-content: space-between; align-items: center; }
+.topbar a { color: #e67e22; text-decoration: none; margin-left: 16px; }
+.topbar a:hover { text-decoration: underline; }
+
+.navbar { background: #fff; border-bottom: 1px solid #e8e8e8; padding: 16px 24px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.logo { font-size: 1.3rem; font-weight: 800; color: #1a1a1a; text-decoration: none; }
+.logo span { color: #e67e22; }
+
+.hero { background: linear-gradient(135deg, #1a1a1a, #2c3e50); color: #fff; padding: 60px 24px; text-align: center; }
+.hero h1 { font-size: 2.2rem; margin-bottom: 12px; }
+.hero p { font-size: 1.1rem; color: #aaa; max-width: 600px; margin: 0 auto 28px; }
+
+.btn-inquire { display: inline-block; padding: 14px 32px; background: #25D366; color: #fff; border: none; border-radius: 30px; font-size: 1.05rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-inquire:hover { background: #1fb457; transform: translateY(-1px); }
+
+.container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+.inquiry-form-section { display: none; max-width: 640px; margin: 0 auto 48px; background: #fff; border: 1px solid #e8e8e8; border-radius: 16px; padding: 28px; box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+.inquiry-form-section.show { display: block; }
+.inquiry-form-section h2 { font-size: 1.3rem; margin-bottom: 20px; }
+.form-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.form-row .field { flex: 1; min-width: 200px; }
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 0.8rem; color: #666; margin-bottom: 6px; font-weight: 500; }
+.field input, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 0.95rem; outline: none; font-family: inherit; }
+.field input:focus, .field textarea:focus { border-color: #e67e22; }
+.field textarea { resize: vertical; min-height: 80px; }
+.field input[type="file"] { padding: 8px; }
+.btn-submit { width: 100%; padding: 13px; background: #e67e22; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+.btn-submit:hover { background: #d35400; }
+.btn-submit:disabled { background: #ccc; cursor: not-allowed; }
+.btn-close { position: absolute; top: 14px; right: 18px; background: none; border: none; font-size: 1.6rem; cursor: pointer; color: #999; }
+
+.section-title { font-size: 1.4rem; margin-bottom: 6px; }
+.section-sub { color: #888; font-size: 0.9rem; margin-bottom: 24px; }
+
+.inquiries-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.inquiry-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; overflow: hidden; }
+.inquiry-img { width: 100%; height: 180px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 3rem; overflow: hidden; }
+.inquiry-img img { width: 100%; height: 100%; object-fit: cover; }
+.inquiry-body { padding: 16px; }
+.inquiry-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+.inquiry-line { font-size: 0.85rem; color: #555; margin-top: 4px; }
+.inquiry-line b { color: #1a1a1a; }
+.inquiry-price { color: #e67e22; font-weight: 700; font-size: 0.95rem; margin-top: 8px; }
+.inquiry-date { font-size: 0.75rem; color: #999; margin-top: 10px; }
+
+.empty { text-align: center; padding: 60px 20px; color: #999; }
+
+.toast { position: fixed; bottom: 24px; right: 24px; background: #1a1a1a; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 0.85rem; z-index: 200; display: none; }
+.toast.show { display: block; }
+.toast.success { background: #27ae60; }
+.toast.error { background: #e74c3c; }
+
+.footer { background: #1a1a1a; color: #888; text-align: center; padding: 24px; font-size: 0.8rem; margin-top: 40px; }
+
+@media (max-width: 640px) {
+  .hero h1 { font-size: 1.8rem; }
+  .inquiries-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span>B2B Marketplace for Shop Owners</span>
+  <div>
+    <a href="/">Home</a>
+    <a href="/shop">Shop Login</a>
+    <a href="/admin">Admin</a>
+  </div>
+</div>
+
+<div class="navbar">
+  <a href="/" class="logo">ohrim<span>marketplace</span></a>
+  <a href="/inquiry" class="logo" style="font-size:1rem;font-weight:600;color:#e67e22">Inquiry</a>
+</div>
+
+<div class="hero">
+  <h1>Product Inquiry</h1>
+  <p>Looking for a product? Post your inquiry and our team will get back to you.</p>
+  <button class="btn-inquire" onclick="openInquiryForm()">Inquire for a product</button>
+</div>
+
+<div class="container">
+
+  <div id="inquiryFormSection" class="inquiry-form-section">
+    <button class="btn-close" onclick="closeInquiryForm()">&times;</button>
+    <h2>Inquire for a product</h2>
+    <form id="inquiryForm" onsubmit="event.preventDefault(); submitInquiry();">
+      <div class="field">
+        <label>Product Name *</label>
+        <input type="text" id="iqProductName" placeholder="e.g. LED Bulb 12W" required>
+      </div>
+      <div class="field">
+        <label>Product Image (optional)</label>
+        <input type="file" id="iqImage" accept="image/*">
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Quantity Required</label>
+          <input type="text" id="iqQuantity" placeholder="e.g. 50 pieces">
+        </div>
+        <div class="field">
+          <label>Estimated Price (₹)</label>
+          <input type="text" id="iqPrice" placeholder="e.g. 300 per piece">
+        </div>
+      </div>
+      <div class="field">
+        <label>Product Description</label>
+        <textarea id="iqDesc" placeholder="Describe the product you are looking for..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Your Name *</label>
+          <input type="text" id="iqName" placeholder="e.g. Rakesh Sharma" required>
+        </div>
+        <div class="field">
+          <label>City</label>
+          <input type="text" id="iqCity" placeholder="e.g. Ahmedabad">
+        </div>
+      </div>
+      <div class="field">
+        <label>Phone Number *</label>
+        <input type="tel" id="iqPhone" placeholder="e.g. 98250 00000" required>
+      </div>
+      <button class="btn-submit" id="iqSubmitBtn">Submit Inquiry</button>
+      <p style="font-size:0.75rem;color:#999;margin-top:10px;text-align:center">Your name and phone number are private — only our team can see them.</p>
+    </form>
+  </div>
+
+  <h2 class="section-title">Buyer Inquiries</h2>
+  <p class="section-sub">Approved inquiries posted by buyers.</p>
+  <div class="inquiries-grid" id="inquiriesList"></div>
+
+</div>
+
+<div class="footer">© 2026 ohrim marketplace · <a href="/inquiry" style="color:#e67e22;text-decoration:none">Post an inquiry</a></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+let toastTimer = null;
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+function openInquiryForm() {
+  const s = document.getElementById('inquiryFormSection');
+  s.classList.add('show');
+  s.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function closeInquiryForm() {
+  document.getElementById('inquiryFormSection').classList.remove('show');
+}
+
+async function submitInquiry() {
+  const productName = document.getElementById('iqProductName').value.trim();
+  const name = document.getElementById('iqName').value.trim();
+  const phone = document.getElementById('iqPhone').value.trim();
+  if (!productName || !name || !phone) {
+    showToast('Please fill Product Name, Your Name and Phone Number', 'error');
+    return;
+  }
+  const btn = document.getElementById('iqSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+  try {
+    const form = new FormData();
+    form.append('productName', productName);
+    form.append('quantity', document.getElementById('iqQuantity').value.trim());
+    form.append('estimatedPrice', document.getElementById('iqPrice').value.trim());
+    form.append('description', document.getElementById('iqDesc').value.trim());
+    form.append('buyerName', name);
+    form.append('city', document.getElementById('iqCity').value.trim());
+    form.append('phone', phone);
+    const fileInput = document.getElementById('iqImage');
+    if (fileInput.files && fileInput.files[0]) form.append('image', fileInput.files[0]);
+
+    const res = await fetch('/api/inquiries', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Inquiry submitted! Our team will review it shortly.', 'success');
+      document.getElementById('inquiryForm').reset();
+      closeInquiryForm();
+    } else {
+      showToast(data.error || 'Could not submit inquiry', 'error');
+    }
+  } catch {
+    showToast('Error submitting inquiry. Please try again.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Submit Inquiry';
+  }
+}
+
+async function loadInquiries() {
+  try {
+    const res = await fetch('/api/inquiries');
+    const data = await res.json();
+    const list = data.inquiries || [];
+    const el = document.getElementById('inquiriesList');
+    if (!list.length) {
+      el.innerHTML = '<div class="empty" style="grid-column:1/-1">No inquiries yet. Be the first to post one!</div>';
+      return;
+    }
+    el.innerHTML = list.map(q => `
+      <div class="inquiry-card">
+        <div class="inquiry-img">${q.image ? '<img src="' + esc(q.image) + '" alt="">' : '<span>📦</span>'}</div>
+        <div class="inquiry-body">
+          <div class="inquiry-title">${esc(q.productName)}</div>
+          ${q.quantity ? '<div class="inquiry-line"><b>Quantity:</b> ' + esc(q.quantity) + '</div>' : ''}
+          ${q.estimatedPrice ? '<div class="inquiry-line"><b>Est. Price:</b> ₹' + esc(q.estimatedPrice) + '</div>' : ''}
+          ${q.description ? '<div class="inquiry-line">' + esc(q.description) + '</div>' : ''}
+          ${q.city ? '<div class="inquiry-line"><b>City:</b> ' + esc(q.city) + '</div>' : ''}
+          <div class="inquiry-date">Posted ' + new Date(q.createdAt).toLocaleDateString() + '</div>
+        </div>
+      </div>
+    `).join('');
+  } catch { }
+}
+
+loadInquiries();
+</script>
+</body>
+</html>

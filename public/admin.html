@@ -54,6 +54,8 @@ a { color: inherit; text-decoration: none; }
 .status-dispatched { background: #e3f2fd; color: #2196f3; }
 .status-delivered { background: #e8f5e9; color: #27ae60; }
 .status-cancelled { background: #ffebee; color: #e74c3c; }
+.status-approved { background: #e8f5e9; color: #27ae60; }
+.status-rejected { background: #ffebee; color: #e74c3c; }
 
 .btn { padding: 6px 12px; border-radius: 6px; border: 1px solid #ddd; background: #fff; color: #666; cursor: pointer; font-size: 0.7rem; font-weight: 500; transition: all 0.2s; }
 .btn:hover { border-color: #e67e22; color: #e67e22; }
@@ -147,6 +149,7 @@ a { color: inherit; text-decoration: none; }
     <div class="tabs">
       <div class="tab active" onclick="switchTab('ordersPanel', this)">All Orders</div>
       <div class="tab" onclick="switchTab('productsPanel', this)">Products</div>
+      <div class="tab" onclick="switchTab('inquiriesPanel', this)">Inquiries</div>
       <div class="tab" onclick="switchTab('categoriesPanel', this)">Categories</div>
       <div class="tab" onclick="switchTab('shopsPanel', this)">Shops</div>
     </div>
@@ -159,6 +162,10 @@ a { color: inherit; text-decoration: none; }
     <div id="productsPanel" class="panel">
       <div class="filter-row" id="categoryFilters"></div>
       <div id="adminProductsList"></div>
+    </div>
+
+    <div id="inquiriesPanel" class="panel">
+      <div id="inquiriesList"></div>
     </div>
 
     <div id="categoriesPanel" class="panel">
@@ -214,6 +221,7 @@ let allOrders = [];
 let statusFilter = '';
 let allAdminProducts = [];
 let adminCatFilter = '';
+let allInquiries = [];
 
 async function doLogin() {
   const pass = document.getElementById('loginPass').value;
@@ -248,6 +256,7 @@ function switchTab(name, el) {
   document.getElementById(name).classList.add('active');
   if (name === 'productsPanel') { loadAdminProducts(); renderCategoryFilters(); }
   if (name === 'categoriesPanel') loadAdminCategories();
+  if (name === 'inquiriesPanel') loadAdminInquiries();
 }
 
 async function loadAll() {
@@ -256,6 +265,7 @@ async function loadAll() {
   loadShops();
   loadAdminProducts();
   loadAdminCategories();
+  loadAdminInquiries();
   renderStatusFilters();
   renderCategoryFilters();
 }
@@ -342,6 +352,75 @@ async function updateOrder(id, status) {
   loadOrders();
   loadStats();
   showToast('Order #' + id + ' updated to ' + status, 'success');
+}
+
+async function loadAdminInquiries() {
+  try {
+    const res = await fetch('/api/admin/inquiries');
+    const data = await res.json();
+    allInquiries = data.inquiries || [];
+    renderAdminInquiries();
+  } catch { }
+}
+
+function renderAdminInquiries() {
+  const el = document.getElementById('inquiriesList');
+  if (!allInquiries.length) { el.innerHTML = '<div class="empty">No inquiries yet</div>'; return; }
+  el.innerHTML = allInquiries.map(q => `
+    <div class="order-card">
+      <div class="order-header">
+        <div>
+          <span class="status-badge status-${q.status}">${q.status}</span>
+          <span style="font-size:0.75rem;color:#999;margin-left:8px">Inquiry #${q.id}</span>
+        </div>
+        <span style="font-size:0.75rem;color:#999">${new Date(q.createdAt).toLocaleString()}</span>
+      </div>
+      <div class="order-body">
+        ${q.image ? '<img class="order-img" src="' + esc(q.image) + '">' : '<div class="order-img" style="display:flex;align-items:center;justify-content:center">📦</div>'}
+        <div class="order-info">
+          <div class="order-product">${esc(q.productName)}</div>
+          <div class="order-customer">👤 ${esc(q.buyerName)} &nbsp; 📱 ${esc(q.phone)}</div>
+          ${q.city ? '<div class="order-meta">📍 ' + esc(q.city) + '</div>' : ''}
+          ${q.quantity ? '<div class="order-meta">Quantity: ' + esc(q.quantity) + '</div>' : ''}
+          ${q.estimatedPrice ? '<div class="order-meta">Est. Price: ₹' + esc(q.estimatedPrice) + '</div>' : ''}
+          ${q.description ? '<div class="order-meta">' + esc(q.description) + '</div>' : ''}
+        </div>
+        <div class="order-right">
+          <div class="order-actions">
+            ${q.status !== 'approved' ? `<button class="btn btn-green" onclick="updateInquiry(${q.id}, 'approved')">Approve</button>` : ''}
+            ${q.status !== 'rejected' ? `<button class="btn btn-red" onclick="updateInquiry(${q.id}, 'rejected')">Reject</button>` : ''}
+            <button class="btn btn-blue" onclick="deleteInquiry(${q.id})">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function updateInquiry(id, status) {
+  try {
+    const res = await fetch('/api/admin/inquiries/' + id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Inquiry #' + id + ' ' + status, 'success');
+      loadAdminInquiries();
+    } else { showToast(data.error, 'error'); }
+  } catch { showToast('Error', 'error'); }
+}
+
+async function deleteInquiry(id) {
+  if (!confirm('Delete this inquiry?')) return;
+  try {
+    const res = await fetch('/api/admin/inquiries/' + id, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Inquiry #' + id + ' deleted', 'success');
+      loadAdminInquiries();
+    } else { showToast(data.error, 'error'); }
+  } catch { showToast('Error', 'error'); }
 }
 
 async function loadShops() {

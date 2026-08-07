@@ -114,6 +114,19 @@ async function initDB() {
       status TEXT DEFAULT 'pending',
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS inquiries (
+      id SERIAL PRIMARY KEY,
+      product_name TEXT NOT NULL,
+      image TEXT,
+      quantity TEXT DEFAULT '',
+      estimated_price TEXT DEFAULT '',
+      description TEXT DEFAULT '',
+      buyer_name TEXT NOT NULL,
+      city TEXT DEFAULT '',
+      phone TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
 
   const res = await pool.query('SELECT id FROM shops WHERE shop_number = $1', ['1']);
@@ -244,6 +257,75 @@ app.post('/api/orders', async (req, res) => {
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
   `, [productId, p.shop_id, p.name, p.price, p.image, p.shop_number, customerName, customerPhone, customerAddress || '', Number(quantity), p.price * Number(quantity)]);
   res.json({ success: true, orderId: result.rows[0].id });
+});
+
+// PUBLIC: Submit a product inquiry
+app.post('/api/inquiries', upload.single('image'), async (req, res) => {
+  const { productName, quantity, estimatedPrice, description, buyerName, city, phone } = req.body;
+  if (!productName || !buyerName || !phone) {
+    return res.status(400).json({ error: 'Product name, buyer name and phone are required' });
+  }
+
+  let image = null;
+  if (req.file) {
+    try {
+      const img = await storeImage(req.file.buffer, req.file.mimetype);
+      image = img.host === 'imgbb' ? img.url : `data:${img.mime};base64,${img.data}`;
+    } catch (err) {
+      console.error('Inquiry image upload failed:', err.message);
+      return res.status(500).json({ error: 'Image could not be uploaded. Please try again with a JPG or PNG under 5MB.' });
+    }
+  }
+
+  const result = await pool.query(`
+    INSERT INTO inquiries (product_name, image, quantity, estimated_price, description, buyer_name, city, phone)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
+  `, [productName.trim(), image, quantity || '', estimatedPrice || '', description || '', buyerName.trim(), city || '', phone.trim()]);
+  res.json({ success: true, inquiryId: result.rows[0].id });
+});
+
+// PUBLIC: List approved inquiries (no buyer name/phone)
+app.get('/api/inquiries', async (req, res) => {
+  const result = await pool.query(`
+    SELECT id, product_name, image, quantity, estimated_price, description, city, created_at
+    FROM inquiries WHERE status = 'approved'
+    ORDER BY created_at DESC
+  `);
+  const inquiries = result.rows.map(r => ({
+    id: r.id, productName: r.product_name, image: r.image, quantity: r.quantity,
+    estimatedPrice: r.estimated_price, description: r.description, city: r.city, createdAt: r.created_at
+  }));
+  res.json({ inquiries });
+});
+
+// ADMIN: All inquiries with buyer contact details
+app.get('/api/admin/inquiries', authAdmin, async (req, res) => {
+  const result = await pool.query('SELECT * FROM inquiries ORDER BY created_at DESC');
+  const inquiries = result.rows.map(r => ({
+    id: r.id, productName: r.product_name, image: r.image, quantity: r.quantity,
+    estimatedPrice: r.estimated_price, description: r.description,
+    buyerName: r.buyer_name, city: r.city, phone: r.phone,
+    status: r.status, createdAt: r.created_at
+  }));
+  res.json({ inquiries });
+});
+
+// ADMIN: Approve / reject an inquiry
+app.put('/api/admin/inquiries/:id', authAdmin, async (req, res) => {
+  const { status } = req.body;
+  if (!['pending', 'approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  const result = await pool.query('UPDATE inquiries SET status = $1 WHERE id = $2 RETURNING id', [status, req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ success: true });
+});
+
+// ADMIN: Delete an inquiry
+app.delete('/api/admin/inquiries/:id', authAdmin, async (req, res) => {
+  const result = await pool.query('DELETE FROM inquiries WHERE id = $1 RETURNING id', [req.params.id]);
+  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ success: true });
 });
 
 // PUBLIC: Shops list
@@ -616,6 +698,7 @@ app.delete('/api/admin/categories/:id', authAdmin, async (req, res) => {
 
 // Page routes
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/inquiry', (req, res) => res.sendFile(path.join(__dirname, 'public', 'inquiry.html')));
 app.get('/shop', (req, res) => res.sendFile(path.join(__dirname, 'public', 'shop.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
