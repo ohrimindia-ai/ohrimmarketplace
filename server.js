@@ -1,3 +1,5 @@
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
 const express = require('express');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
@@ -13,8 +15,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  family: 4
+  ssl: { rejectUnauthorized: false }
 });
 
 process.on('unhandledRejection', (err) => {
