@@ -162,7 +162,25 @@ const upload = multer({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h', etag: true }));
+
+const cache = {};
+function cached(key, ttlMs, handler) {
+  return async (req, res) => {
+    const now = Date.now();
+    if (cache[key] && now - cache[key].ts < ttlMs) {
+      res.set('Cache-Control', 'public, s-maxage=' + Math.round(ttlMs/1000) + ', max-age=60');
+      return res.json(cache[key].data);
+    }
+    const origJson = res.json.bind(res);
+    res.json = (data) => {
+      cache[key] = { data, ts: now };
+      res.set('Cache-Control', 'public, s-maxage=' + Math.round(ttlMs/1000) + ', max-age=60');
+      return origJson(data);
+    };
+    await handler(req, res);
+  };
+}
 
 function authShop(req, res, next) {
   const token = req.cookies.shopToken;
@@ -185,7 +203,7 @@ function authAdmin(req, res, next) {
 }
 
 // PUBLIC: List all products
-app.get('/api/products', async (req, res) => {
+app.get('/api/products', cached('products', 300000, async (req, res) => {
   const { shop, search, sort, category } = req.query;
   let query = `
     SELECT p.*, s.shop_number
@@ -211,10 +229,11 @@ app.get('/api/products', async (req, res) => {
     active: p.active, createdAt: p.created_at, shopNumber: p.shop_number
   }));
   res.json({ products });
-});
+}));
 
 // PUBLIC: Single product
 app.get('/api/products/:id', async (req, res) => {
+  res.set('Cache-Control', 'public, s-maxage=300, max-age=60');
   const result = await pool.query(`
     SELECT p.*, s.shop_number FROM products p JOIN shops s ON p.shop_id = s.id WHERE p.id = $1
   `, [req.params.id]);
@@ -342,7 +361,7 @@ app.get('/api/shops', async (req, res) => {
 });
 
 // PUBLIC: Categories list (managed categories + legacy product categories, with active product counts)
-app.get('/api/categories', async (req, res) => {
+app.get('/api/categories', cached('categories', 600000, async (req, res) => {
   const result = await pool.query(`
     SELECT name, COUNT(t.id) AS count FROM (
       SELECT c.name AS name, p.id
@@ -358,7 +377,7 @@ app.get('/api/categories', async (req, res) => {
     ORDER BY count DESC, name
   `);
   res.json({ categories: result.rows.map(r => ({ name: r.name, count: Number(r.count) })) });
-});
+}));
 
 // AUTH: Shop login
 app.post('/api/shop/login', async (req, res) => {
@@ -486,6 +505,8 @@ app.put('/api/shop/products/:id', authShop, upload.single('image'), async (req, 
     },
     imageHost
   });
+  delete cache['products'];
+  delete cache['categories'];
 });
 
 // AUTH: Shop - delete product (soft delete)
@@ -494,6 +515,8 @@ app.delete('/api/shop/products/:id', authShop, async (req, res) => {
   if (check.rows.length === 0) return res.status(404).json({ error: 'Not found' });
   await pool.query('UPDATE products SET active = false WHERE id = $1', [req.params.id]);
   res.json({ success: true });
+  delete cache['products'];
+  delete cache['categories'];
 });
 
 // AUTH: Shop - get own orders
