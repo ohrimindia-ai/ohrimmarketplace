@@ -393,10 +393,9 @@ app.get('/api/shop/products', authShop, async (req, res) => {
 
 // AUTH: Shop - add product
 app.post('/api/shop/products', authShop, upload.single('image'), async (req, res) => {
-  const { name, price, description, category } = req.body;
+  const { name, price, description, category, imageUrl: imageUrlBody, unit, stock } = req.body;
   if (!name || !price) return res.status(400).json({ error: 'Name and price required' });
 
-  let imageUrl = null;
   let imageHost = 'none';
   let img = null;
   if (req.file) {
@@ -409,16 +408,23 @@ app.post('/api/shop/products', authShop, upload.single('image'), async (req, res
     }
   }
 
+  let finalImage = null;
+  if (img && img.host === 'imgbb') {
+    finalImage = img.url;
+  } else if (imageUrlBody) {
+    finalImage = imageUrlBody;
+  }
+
   const result = await pool.query(`
     INSERT INTO products (shop_id, name, price, description, category, image)
     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
-  `, [req.shopId, name, Number(price), description || '', category || '', img && img.host === 'imgbb' ? img.url : null]);
+  `, [req.shopId, name, Number(price), description || '', category || '', finalImage]);
   const p = result.rows[0];
 
   if (img && img.host === 'local') {
-    imageUrl = await saveImageForProduct(p.id, img);
-    await pool.query('UPDATE products SET image = $1 WHERE id = $2', [imageUrl, p.id]);
-    p.image = imageUrl;
+    const localUrl = await saveImageForProduct(p.id, img);
+    await pool.query('UPDATE products SET image = $1 WHERE id = $2', [localUrl, p.id]);
+    p.image = localUrl;
   }
   res.json({
     success: true, product: {
